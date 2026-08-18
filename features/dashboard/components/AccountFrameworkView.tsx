@@ -15,6 +15,7 @@ import {
   Trophy,
   UsersRound,
 } from "lucide-react";
+import AssignmentModal from "@/components/ui/assignment-modal";
 
 type AccountFrameworkViewProps = {
   account: "JS" | "DFT" | "RM" | "BF";
@@ -38,6 +39,7 @@ const accentColor = {
 
 export default function AccountFrameworkView({ account, qaName, accent }: AccountFrameworkViewProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [assignmentOpen, setAssignmentOpen] = useState(false);
   const unit = account.toLowerCase();
   const a = accentColor[accent];
 
@@ -87,7 +89,7 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
               </Link>
               <button
                 type="button"
-                onClick={() => alert("Open Account Assignment Settings")}
+                onClick={() => setAssignmentOpen(true)}
                 className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-white px-5 py-2.5 text-[13px] font-semibold ${a.text} transition ${a.hoverBg}`}
               >
                 <Settings className="h-4 w-4" />
@@ -210,6 +212,7 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
             <RosterPanel
               title="Managed Coach Roster Scope"
               description="Direct alignment mapping metrics (Read-Only access rights enforced)"
+              account={unit}
               qaName={qaName}
               accent={accent}
               showQa
@@ -217,12 +220,14 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
             <RosterPanel
               title="Evaluator Operational Allocations"
               description="Select an agent below to build execution forms or modify history footprints"
+              account={unit}
               qaName={qaName}
               accent={accent}
             />
           </div>
         </section>
       </div>
+      <AssignmentModal open={assignmentOpen} onClose={() => setAssignmentOpen(false)} accent={accent} />
     </div>
   );
 }
@@ -244,7 +249,7 @@ function MetricCard({ icon: Icon, label, value, accentHex }: { icon: typeof Clip
   );
 }
 
-function RosterPanel({ title, description, qaName, accent, showQa = false }: { title: string; description: string; qaName: string; accent: "gold" | "indigo" | "crimson" | "charcoal"; showQa?: boolean }) {
+function RosterPanel({ title, description, account, qaName, accent, showQa = false }: { title: string; description: string; account: string; qaName: string; accent: "gold" | "indigo" | "crimson" | "charcoal"; showQa?: boolean }) {
   const a = accentColor[accent];
   return (
     <section className="rounded-xl border border-border-subtle bg-white p-4">
@@ -254,20 +259,24 @@ function RosterPanel({ title, description, qaName, accent, showQa = false }: { t
       </h2>
       <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{description}</p>
       <div className="mt-3 space-y-2">
-        {people.map((person) => (
-          <div
-            key={person.name}
-            className={`flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-raised px-3 py-2.5 text-[12px] transition hover:border-current ${a.text}`}
-          >
-            <span className="font-medium text-text-primary">{person.name}</span>
-            {showQa && (
-              <span className={`rounded-md ${a.bg}/10 px-1.5 py-0.5 text-[10px] font-semibold ${a.text}`}>
-                QA: {qaName}
-              </span>
-            )}
-            <CircleChevronRight className="ml-auto h-4 w-4 shrink-0 text-text-muted" />
-          </div>
-        ))}
+        {people.map((person) => {
+          const slug = person.name.toLowerCase().replace(/\s+/g, "-");
+          return (
+            <Link
+              key={person.name}
+              href={`/${account}/roster/${slug}`}
+              className={`flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-raised px-3 py-2.5 text-[12px] transition hover:border-current ${a.text}`}
+            >
+              <span className="font-medium text-text-primary">{person.name}</span>
+              {showQa && (
+                <span className={`rounded-md ${a.bg}/10 px-1.5 py-0.5 text-[10px] font-semibold ${a.text}`}>
+                  QA: {qaName}
+                </span>
+              )}
+              <CircleChevronRight className="ml-auto h-4 w-4 shrink-0 text-text-muted" />
+            </Link>
+          );
+        })}
       </div>
     </section>
   );
