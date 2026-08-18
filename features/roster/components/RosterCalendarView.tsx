@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -47,7 +48,8 @@ const months = ["January", "February", "March", "April", "May", "June", "July", 
 export default function RosterCalendarView({ account, personName, accent }: RosterCalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState(7);
   const [currentYear] = useState(2026);
-  const [selectedDay, setSelectedDay] = useState<number | null>(15);
+  const [popupDay, setPopupDay] = useState<number | null>(null);
+  const router = useRouter();
   const a = accentColor[accent];
 
   const firstDay = new Date(currentYear, currentMonth, 1).getDay();
@@ -69,12 +71,11 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
         empty: false as const,
         isToday: day === today && currentMonth === 7,
         hasEvaluation: currentMonth === 7 && evaluationDays.includes(day),
-        isSelected: selectedDay === day,
         detail: evaluationDetails[day],
       };
     });
     return [...emptyDays, ...realDays];
-  }, [firstDay, daysInMonth, currentMonth, selectedDay]);
+  }, [firstDay, daysInMonth, currentMonth]);
 
   return (
     <div className="min-h-screen bg-surface-base text-text-primary">
@@ -148,36 +149,32 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
                 return <div key={cell.key} className="min-h-[90px] border-b border-r border-border-subtle/50 bg-surface-base/30" />;
               }
 
-              const { day, isToday, hasEvaluation, isSelected, detail } = cell as { day: number; isToday: boolean; hasEvaluation: boolean; isSelected: boolean; detail: { time: string; type: string; score: string } | undefined };
+              const { day, isToday, hasEvaluation, detail } = cell as { day: number; isToday: boolean; hasEvaluation: boolean; detail: { time: string; type: string; score: string } | undefined };
 
               return (
                 <button
                   key={cell.key}
-                  onClick={() => setSelectedDay(isSelected ? null : day)}
+                  onClick={() => setPopupDay(day)}
                   className={`group relative flex min-h-[90px] flex-col border-b border-r border-border-subtle/50 p-2.5 transition-all duration-150 ${
-                    isSelected
-                      ? `${a.bg} text-white z-10 shadow-lg`
-                      : isToday
-                        ? `border-2 ${a.border} bg-white`
-                        : hasEvaluation
-                          ? "bg-white hover:shadow-md hover:z-10"
-                          : "bg-white hover:bg-surface-overlay/50"
+                    isToday
+                      ? `border-2 ${a.border} bg-white`
+                      : hasEvaluation
+                        ? "bg-white hover:shadow-md hover:z-10"
+                        : "bg-white hover:bg-surface-overlay/50"
                   }`}
                 >
                   {/* Day Number */}
                   <div className="flex items-start justify-between">
                     <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[12px] font-bold ${
-                      isSelected
-                        ? "bg-white/20 text-white"
-                        : isToday
-                          ? `${a.bgLight} ${a.text}`
-                          : hasEvaluation
-                            ? "text-text-primary"
-                            : "text-text-muted"
+                      isToday
+                        ? `${a.bgLight} ${a.text}`
+                        : hasEvaluation
+                          ? "text-text-primary"
+                          : "text-text-muted"
                     }`}>
                       {day}
                     </span>
-                    {isToday && !isSelected && (
+                    {isToday && (
                       <span className="rounded-full bg-brand-crimson px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
                         Today
                       </span>
@@ -187,14 +184,7 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
                   {/* Evaluation Info */}
                   {hasEvaluation && detail && (
                     <div className="mt-auto">
-                      {isSelected ? (
-                        <div className="space-y-0.5">
-                          <p className="text-[10px] font-medium opacity-90">{detail.time}</p>
-                          <p className="text-[11px] font-bold">{detail.score}</p>
-                        </div>
-                      ) : (
-                        <span className={`text-[11px] font-bold ${a.text}`}>{detail.score}</span>
-                      )}
+                      <span className={`text-[11px] font-bold ${a.text}`}>{detail.score}</span>
                     </div>
                   )}
                 </button>
@@ -225,6 +215,66 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
           </div>
         </div>
       </div>
+
+      {/* Popup overlay */}
+      {popupDay !== null && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={() => setPopupDay(null)}>
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-[400px] rounded-2xl border border-border-default bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
+            <button
+              onClick={() => setPopupDay(null)}
+              className="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border border-border-default bg-white text-text-muted transition hover:bg-surface-overlay hover:text-text-primary"
+            >
+              <span className="text-[16px] leading-none">&times;</span>
+            </button>
+
+            {/* Title */}
+            <div className="border-b border-border-subtle px-6 py-4">
+              <h2 className="text-[15px] font-bold text-text-primary">Operational Action Parameter Required</h2>
+            </div>
+
+            {/* Content */}
+            <div className="px-6 py-5">
+              {currentMonth === 7 && evaluationDetails[popupDay] ? (
+                <div className="space-y-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+                    Existing Evaluations
+                  </p>
+                  <div className="rounded-lg border border-border-default bg-surface-raised p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`flex-shrink-0 h-2 w-2 rounded-full ${a.bg}`} />
+                        <div className="min-w-0">
+                          <div className={`text-[14px] font-bold ${a.text}`}>
+                            {evaluationDetails[popupDay].score}
+                          </div>
+                          <div className="text-[11px] text-text-secondary truncate">
+                            {evaluationDetails[popupDay].type} &middot; {evaluationDetails[popupDay].time}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => router.push(`/${account}/roster/${personName}/evaluation/eval-${account}-cxl-${popupDay}-05aug2026-01`)}
+                        className={`flex-shrink-0 rounded-lg border ${a.border} bg-white px-3 py-1.5 text-[11px] font-semibold ${a.text} transition ${a.hoverBg}`}
+                      >
+                        View
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-4 text-center text-[13px] text-text-muted">
+                  No evaluations found for this date.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
