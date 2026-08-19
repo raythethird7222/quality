@@ -31,10 +31,10 @@ const people = [
 ];
 
 const accentColor = {
-  gold: { text: "text-brand-gold", bg: "bg-brand-gold", border: "border-brand-gold", hoverBg: "hover:bg-brand-gold/10", hex: "#C8A54B" },
+  gold: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", hex: "#2F6798" },
   indigo: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", hex: "#2F6798" },
-  crimson: { text: "text-brand-crimson", bg: "bg-brand-crimson", border: "border-brand-crimson", hoverBg: "hover:bg-brand-crimson/10", hex: "#ED1C25" },
-  charcoal: { text: "text-brand-charcoal", bg: "bg-brand-charcoal", border: "border-brand-charcoal", hoverBg: "hover:bg-brand-charcoal/10", hex: "#363435" },
+  crimson: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", hex: "#2F6798" },
+  charcoal: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", hex: "#2F6798" },
 } as const;
 
 export default function AccountFrameworkView({ account, qaName, accent }: AccountFrameworkViewProps) {
@@ -50,7 +50,7 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
         <nav className="flex flex-wrap items-center gap-3 text-[13px]" aria-label="Breadcrumb">
           <Link
             href={`/${unit}`}
-            className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-white px-3.5 py-2 font-medium ${a.text} transition ${a.hoverBg}`}
+            className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-card px-3.5 py-2 font-medium ${a.text} transition ${a.hoverBg}`}
           >
             <ArrowLeft className="h-4 w-4" />
             Return back
@@ -65,7 +65,7 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
         </nav>
 
         {/* Main Card */}
-        <section className="mt-5 rounded-2xl border border-border-default bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-7">
+        <section className="mt-5 rounded-2xl border border-border-default bg-card p-6 shadow-sm md:p-7">
 
           {/* Header Row */}
           <header className="flex flex-col justify-between gap-4 border-b border-border-subtle pb-5 md:flex-row md:items-center">
@@ -90,7 +90,7 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
               <button
                 type="button"
                 onClick={() => setAssignmentOpen(true)}
-                className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-white px-5 py-2.5 text-[13px] font-semibold ${a.text} transition ${a.hoverBg}`}
+                className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-card px-5 py-2.5 text-[13px] font-semibold ${a.text} transition ${a.hoverBg}`}
               >
                 <Settings className="h-4 w-4" />
                 QA Assignment
@@ -104,7 +104,7 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
               <button
                 type="button"
                 onClick={() => alert("Previous Day")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-white px-3.5 py-2 text-[12px] font-medium text-text-primary transition hover:border-border-accent hover:shadow-sm"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-card px-3.5 py-2 text-[12px] font-medium text-text-primary transition hover:border-border-accent hover:shadow-sm"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
                 Previous Day
@@ -114,14 +114,14 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
                 <button
                   type="button"
                   onClick={() => setCalendarOpen((o) => !o)}
-                  className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-white px-4 py-2 text-[13px] font-bold ${a.text} transition hover:shadow-sm`}
+                  className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-card px-4 py-2 text-[13px] font-bold ${a.text} transition hover:shadow-sm`}
                 >
                   Aug 15, 2026
                   <CalendarDays className="h-3.5 w-3.5" />
                 </button>
 
                 {calendarOpen && (
-                  <div className="absolute left-1/2 z-20 mt-2 w-[260px] -translate-x-1/2 rounded-xl border border-border-default bg-white p-4 shadow-xl">
+                  <div className="absolute left-1/2 z-20 mt-2 w-[260px] -translate-x-1/2 rounded-xl border border-border-default bg-card p-4 shadow-xl">
                     <div className="mb-3 flex items-center justify-between text-sm font-semibold text-text-primary">
                       <button type="button" onClick={() => alert("Prev Month")} className="rounded p-1 transition hover:bg-surface-overlay"><ChevronLeft className="h-4 w-4" /></button>
                       August 2026
@@ -135,7 +135,7 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
                         <span
                           key={i}
                           className="cursor-pointer rounded-lg px-1 py-1.5 transition hover:bg-surface-overlay"
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "#E8E7E5")}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-overlay)")}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         >
                           {i + 1}
@@ -149,7 +149,7 @@ export default function AccountFrameworkView({ account, qaName, accent }: Accoun
               <button
                 type="button"
                 onClick={() => alert("Next Day")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-white px-3.5 py-2 text-[12px] font-medium text-text-primary transition hover:border-border-accent hover:shadow-sm"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-card px-3.5 py-2 text-[12px] font-medium text-text-primary transition hover:border-border-accent hover:shadow-sm"
               >
                 Next Day
                 <ChevronRight className="h-3.5 w-3.5" />
@@ -252,7 +252,7 @@ function MetricCard({ icon: Icon, label, value, accentHex }: { icon: typeof Clip
 function RosterPanel({ title, description, account, qaName, accent, showQa = false }: { title: string; description: string; account: string; qaName: string; accent: "gold" | "indigo" | "crimson" | "charcoal"; showQa?: boolean }) {
   const a = accentColor[accent];
   return (
-    <section className="rounded-xl border border-border-subtle bg-white p-4">
+    <section className="rounded-xl border border-border-subtle bg-card p-4">
       <h2 className="flex items-center gap-2 text-[14px] font-bold text-text-primary">
         <UsersRound className={`h-4 w-4 ${a.text}`} />
         {title}

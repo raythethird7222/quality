@@ -8,16 +8,11 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  CircleChevronRight,
-  ClipboardList,
   Filter,
   Layers,
   PieChart as PieChartIcon,
-  Settings,
-  ShieldAlert,
   TrendingUp,
   Trophy,
-  UsersRound,
 } from "lucide-react";
 import {
   Area,
@@ -49,10 +44,10 @@ type TeamAnalyticsViewProps = {
 };
 
 const accentColor = {
-  gold: { text: "text-brand-gold", bg: "bg-brand-gold", border: "border-brand-gold", bgLight: "bg-brand-gold/10", hex: "#C8A54B" },
-  indigo: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", bgLight: "bg-brand-indigo/10", hex: "#2F6798" },
-  crimson: { text: "text-brand-crimson", bg: "bg-brand-crimson", border: "border-brand-crimson", bgLight: "bg-brand-crimson/10", hex: "#ED1C25" },
-  charcoal: { text: "text-brand-charcoal", bg: "bg-brand-charcoal", border: "border-brand-charcoal", bgLight: "bg-brand-charcoal/10", hex: "#363435" },
+  gold: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", bgLight: "bg-brand-indigo/10", hoverBg: "hover:bg-brand-indigo/10", hex: "#2F6798" },
+  indigo: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", bgLight: "bg-brand-indigo/10", hoverBg: "hover:bg-brand-indigo/10", hex: "#2F6798" },
+  crimson: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", bgLight: "bg-brand-indigo/10", hoverBg: "hover:bg-brand-indigo/10", hex: "#2F6798" },
+  charcoal: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", bgLight: "bg-brand-indigo/10", hoverBg: "hover:bg-brand-indigo/10", hex: "#2F6798" },
 } as const;
 
 const trendData = [
@@ -86,13 +81,6 @@ const rankingData = [
 ];
 
 const timeframes = ["Daily", "Weekly", "Monthly", "Quarterly", "Yearly"] as const;
-
-const people = [
-  { name: "CLAIRA ANN CLAROS", score: "94.5%", opportunities: 12 },
-  { name: "JIMBOY SARTE", score: "88.2%", opportunities: 8 },
-  { name: "JOLANE CABUSOG", score: "91.0%", opportunities: 15 },
-  { name: "MARY GRACE DIOLA", score: "86.7%", opportunities: 6 },
-];
 
 function RankBadge({ rank, color }: { rank: number; color: string }) {
   const badges: Record<number, string> = { 1: "\u{1F947}", 2: "\u{1F948}", 3: "\u{1F949}" };
@@ -137,22 +125,25 @@ export default function TeamAnalyticsView({ account, qaName, accent }: TeamAnaly
     <div className="min-h-screen bg-surface-base text-text-primary">
       <div className="mx-auto max-w-[1440px] px-6 py-5 md:px-9">
         {/* Breadcrumb */}
-        <nav className="mb-6 flex flex-wrap items-center gap-3 text-[13px]" aria-label="Breadcrumb">
+        <nav className="flex flex-wrap items-center gap-3 text-[13px]" aria-label="Breadcrumb">
           <Link
             href={`/${unit}/dashboard`}
-            className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-white px-3.5 py-2 font-medium ${a.text} transition hover:bg-surface-elevated`}
+            className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-card px-3.5 py-2 font-medium ${a.text} transition ${a.hoverBg}`}
           >
             <ArrowLeft size={16} />
             Back to Dashboard
           </Link>
-          <span className="text-text-muted">/</span>
-          <span className="font-medium text-text-primary">Team Performance Analytics</span>
+          <div className="flex items-center gap-2 text-text-muted">
+            <Link href="/" className="transition hover:text-brand-indigo">Home</Link>
+            <span>/</span>
+            <span className={`font-semibold ${a.text}`}>Team Performance Analytics</span>
+          </div>
         </nav>
 
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight text-text-primary">Team Performance Analytics</h1>
-          <p className="mt-1.5 text-sm">
+        <div className="mt-5 mb-6">
+          <h1 className="text-[22px] font-bold tracking-tight text-text-primary">Team Performance Analytics</h1>
+          <p className="mt-1 text-[13px]">
             Scope: <span className={`font-semibold ${a.text}`}>{qaName}</span>
             <span className="mx-1.5 text-text-muted">&middot;</span>
             <span className="text-text-secondary">{account}</span>
@@ -160,13 +151,13 @@ export default function TeamAnalyticsView({ account, qaName, accent }: TeamAnaly
         </div>
 
         {/* Filter Toolbar */}
-        <div className="mb-8 rounded-2xl border border-border-default bg-white p-3 shadow-sm">
+        <div className="mb-8 rounded-2xl border border-border-default bg-card p-3 shadow-sm">
           <div className="flex items-center gap-2">
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-raised">
                 <Layers size={14} className="text-text-muted" />
               </span>
-              <select className="min-w-0 flex-1 rounded-lg border border-border-default bg-white px-2.5 py-1.5 text-xs text-text-primary outline-none">
+              <select className="min-w-0 flex-1 rounded-lg border border-border-default bg-card px-2.5 py-1.5 text-xs text-text-primary outline-none">
                 <option>All LOBs</option>
                 <option>MAIN</option>
               </select>
@@ -176,7 +167,7 @@ export default function TeamAnalyticsView({ account, qaName, accent }: TeamAnaly
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-raised">
                 <Filter size={14} className="text-text-muted" />
               </span>
-              <select className="min-w-0 flex-1 rounded-lg border border-border-default bg-white px-2.5 py-1.5 text-xs text-text-primary outline-none">
+              <select className="min-w-0 flex-1 rounded-lg border border-border-default bg-card px-2.5 py-1.5 text-xs text-text-primary outline-none">
                 <option>All Guidelines</option>
                 <option>MAIN</option>
               </select>
@@ -203,20 +194,20 @@ export default function TeamAnalyticsView({ account, qaName, accent }: TeamAnaly
             <div className="h-6 w-px shrink-0 bg-border-default" />
 
             <div className="flex shrink-0 items-center gap-1.5">
-              <button className="flex items-center gap-1 rounded-md border border-border-default bg-white px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition hover:bg-surface-raised">
+              <button className="flex items-center gap-1 rounded-md border border-border-default bg-card px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition hover:bg-surface-raised">
                 <ChevronLeft size={12} />
                 Prev
               </button>
               <div className="relative">
                 <button
                   onClick={() => setCalendarOpen(!calendarOpen)}
-                  className={`flex items-center gap-1.5 rounded-md border ${a.border} bg-white px-3 py-1.5 text-[11px] font-semibold ${a.text} transition hover:bg-surface-elevated`}
+                  className={`flex items-center gap-1.5 rounded-md border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition hover:bg-surface-elevated`}
                 >
                   <CalendarDays size={12} />
                   AUG 15, 2026
                 </button>
                 {calendarOpen && (
-                  <div className="absolute left-1/2 top-full z-50 mt-2 w-[260px] -translate-x-1/2 rounded-xl border border-border-default bg-white p-4 shadow-xl">
+                  <div className="absolute left-1/2 top-full z-50 mt-2 w-[260px] -translate-x-1/2 rounded-xl border border-border-default bg-card p-4 shadow-xl">
                     <div className="mb-3 flex items-center justify-between">
                       <button onClick={() => setCalendarOpen(false)} className="text-text-muted hover:text-text-primary">
                         <ChevronLeft size={16} />
@@ -246,7 +237,7 @@ export default function TeamAnalyticsView({ account, qaName, accent }: TeamAnaly
                   </div>
                 )}
               </div>
-              <button className="flex items-center gap-1 rounded-md border border-border-default bg-white px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition hover:bg-surface-raised">
+              <button className="flex items-center gap-1 rounded-md border border-border-default bg-card px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition hover:bg-surface-raised">
                 Next
                 <ChevronRight size={12} />
               </button>
@@ -257,7 +248,7 @@ export default function TeamAnalyticsView({ account, qaName, accent }: TeamAnaly
         {/* Charts Row */}
         <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Line Chart - QA Accuracy Trend */}
-          <Card className="border-border-default bg-white shadow-sm">
+          <Card className="rounded-2xl border border-border-default bg-card shadow-sm ring-0">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <div className="flex items-center gap-2">
                 <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${a.bgLight}`}>
@@ -290,7 +281,7 @@ export default function TeamAnalyticsView({ account, qaName, accent }: TeamAnaly
           </Card>
 
           {/* Pie Chart - Volume Allocation */}
-          <Card className="border-border-default bg-white shadow-sm">
+          <Card className="rounded-2xl border border-border-default bg-card shadow-sm ring-0">
             <CardHeader className="flex flex-row items-center gap-2 pb-2">
               <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${a.bgLight}`}>
                 <PieChartIcon size={16} className={a.text} />
@@ -323,7 +314,7 @@ export default function TeamAnalyticsView({ account, qaName, accent }: TeamAnaly
         </div>
 
         {/* Bar Chart - Defect Distribution */}
-        <Card className="mb-6 border-border-default bg-white shadow-sm">
+        <Card className="mb-6 rounded-2xl border border-border-default bg-card shadow-sm ring-0">
           <CardHeader className="flex flex-row items-center gap-2 pb-2">
             <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${a.bgLight}`}>
               <BarChart3 size={16} className={a.text} />
@@ -344,7 +335,7 @@ export default function TeamAnalyticsView({ account, qaName, accent }: TeamAnaly
         </Card>
 
         {/* Ranking Table */}
-        <Card className="border-border-default bg-white shadow-sm">
+        <Card className="rounded-2xl border border-border-default bg-card shadow-sm ring-0">
           <CardHeader className="flex flex-row items-center gap-2 pb-3">
             <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${a.bgLight}`}>
               <Trophy size={16} className={a.text} />

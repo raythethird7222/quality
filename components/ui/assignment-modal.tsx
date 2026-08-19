@@ -19,10 +19,10 @@ type AssignmentModalProps = {
 };
 
 const accentColor = {
-  gold: { text: "text-brand-gold", bg: "bg-brand-gold", border: "border-brand-gold", hoverBg: "hover:bg-brand-gold/10", bgLight: "bg-brand-gold/10" },
+  gold: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10" },
   indigo: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10" },
-  crimson: { text: "text-brand-crimson", bg: "bg-brand-crimson", border: "border-brand-crimson", hoverBg: "hover:bg-brand-crimson/10", bgLight: "bg-brand-crimson/10" },
-  charcoal: { text: "text-brand-charcoal", bg: "bg-brand-charcoal", border: "border-brand-charcoal", hoverBg: "hover:bg-brand-charcoal/10", bgLight: "bg-brand-charcoal/10" },
+  crimson: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10" },
+  charcoal: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10" },
 } as const;
 
 const qaList = ["QA CARL", "QA CLARENCE", "QA CLEOFAS", "QA DENIELLA", "QA HANAZAIRA", "QA JHONMEL", "QA JONASH", "QA LIZA", "QA STEFFANY", "QA TANIA", "QA VERONICA"];
@@ -115,7 +115,7 @@ export default function AssignmentModal({ open, onClose, accent }: AssignmentMod
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative mx-4 flex max-h-[90vh] w-full max-w-[1100px] flex-col rounded-2xl border border-border-default bg-white shadow-2xl">
+      <div className="relative mx-4 flex max-h-[90vh] w-full max-w-[1100px] flex-col rounded-2xl border border-border-default bg-card shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border-subtle px-6 py-4">
           <h2 className="flex items-center gap-2.5 text-[16px] font-bold text-text-primary">
@@ -141,14 +141,14 @@ export default function AssignmentModal({ open, onClose, accent }: AssignmentMod
               placeholder="Search agent..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-border-default bg-white py-2 pl-9 pr-3 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
+              className="w-full rounded-lg border border-border-default bg-card py-2 pl-9 pr-3 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
             />
           </div>
           <div className="relative">
             <select
               value={lobFilter}
               onChange={(e) => setLobFilter(e.target.value)}
-              className="appearance-none rounded-lg border border-border-default bg-white py-2 pl-3 pr-8 text-[13px] text-text-primary outline-none transition focus:border-border-accent focus:ring-1 focus:ring-border-accent"
+              className="appearance-none rounded-lg border border-border-default bg-card py-2 pl-3 pr-8 text-[13px] text-text-primary outline-none transition focus:border-border-accent focus:ring-1 focus:ring-border-accent"
             >
               {lobOptions.map((lob) => (
                 <option key={lob} value={lob}>{lob === "ALL" ? "All LOBs" : lob}</option>
@@ -165,14 +165,14 @@ export default function AssignmentModal({ open, onClose, accent }: AssignmentMod
             <select
               value={bulkCoach}
               onChange={(e) => setBulkCoach(e.target.value)}
-              className="appearance-none rounded-lg border border-border-default bg-white py-1.5 pl-3 pr-8 text-[12px] text-text-primary outline-none"
+              className="appearance-none rounded-lg border border-border-default bg-card py-1.5 pl-3 pr-8 text-[12px] text-text-primary outline-none"
             >
               <option value="">-- Select QA --</option>
               {qaList.map((qa) => <option key={qa} value={qa}>{qa}</option>)}
             </select>
             <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-muted" />
           </div>
-          <button onClick={applyBulkCoach} className={`rounded-lg border ${a.border} bg-white px-3 py-1.5 text-[12px] font-semibold ${a.text} transition ${a.hoverBg}`}>
+          <button onClick={applyBulkCoach} className={`rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[12px] font-semibold ${a.text} transition ${a.hoverBg}`}>
             Apply
           </button>
 
@@ -181,14 +181,14 @@ export default function AssignmentModal({ open, onClose, accent }: AssignmentMod
             <select
               value={bulkEvaluator}
               onChange={(e) => setBulkEvaluator(e.target.value)}
-              className="appearance-none rounded-lg border border-border-default bg-white py-1.5 pl-3 pr-8 text-[12px] text-text-primary outline-none"
+              className="appearance-none rounded-lg border border-border-default bg-card py-1.5 pl-3 pr-8 text-[12px] text-text-primary outline-none"
             >
               <option value="">-- Select QA --</option>
               {qaList.map((qa) => <option key={qa} value={qa}>{qa}</option>)}
             </select>
             <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-muted" />
           </div>
-          <button onClick={applyBulkEvaluator} className={`rounded-lg border ${a.border} bg-white px-3 py-1.5 text-[12px] font-semibold ${a.text} transition ${a.hoverBg}`}>
+          <button onClick={applyBulkEvaluator} className={`rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[12px] font-semibold ${a.text} transition ${a.hoverBg}`}>
             Apply
           </button>
 
@@ -197,13 +197,13 @@ export default function AssignmentModal({ open, onClose, accent }: AssignmentMod
             <select
               value={bulkTeamLead}
               onChange={(e) => setBulkTeamLead(e.target.value)}
-              className="appearance-none rounded-lg border border-border-default bg-white py-1.5 pl-3 pr-8 text-[12px] text-text-primary outline-none"
+              className="appearance-none rounded-lg border border-border-default bg-card py-1.5 pl-3 pr-8 text-[12px] text-text-primary outline-none"
             >
               <option value="">-- Select Team Lead --</option>
             </select>
             <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-muted" />
           </div>
-          <button onClick={applyBulkTeamLead} className={`rounded-lg border ${a.border} bg-white px-3 py-1.5 text-[12px] font-semibold ${a.text} transition ${a.hoverBg}`}>
+          <button onClick={applyBulkTeamLead} className={`rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[12px] font-semibold ${a.text} transition ${a.hoverBg}`}>
             Apply
           </button>
 
@@ -280,7 +280,7 @@ export default function AssignmentModal({ open, onClose, accent }: AssignmentMod
         <div className="flex items-center justify-end gap-3 border-t border-border-subtle px-6 py-4">
           <button
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-white px-4 py-2 text-[13px] font-semibold text-text-secondary transition hover:bg-surface-overlay"
+            className="rounded-lg border border-border-default bg-card px-4 py-2 text-[13px] font-semibold text-text-secondary transition hover:bg-surface-overlay"
           >
             Cancel
           </button>
