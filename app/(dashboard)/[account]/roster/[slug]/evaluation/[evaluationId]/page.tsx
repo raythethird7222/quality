@@ -3,7 +3,7 @@ import EvaluationDetailView from "@/features/roster/components/EvaluationDetailV
 const accentMap: Record<string, "gold" | "indigo" | "crimson" | "charcoal"> = {
   js: "gold",
   dft: "indigo",
-  rm: "crimson",
+  rm: "indigo",
   bf: "charcoal",
 };
 

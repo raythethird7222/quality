@@ -11,10 +11,10 @@ type AddAgentModalProps = {
 };
 
 const accentColor = {
-  gold: { text: "text-brand-gold", bg: "bg-brand-gold", border: "border-brand-gold", hoverBg: "hover:bg-brand-gold/10", bgLight: "bg-brand-gold/10" },
+  gold: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10" },
   indigo: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10" },
-  crimson: { text: "text-brand-crimson", bg: "bg-brand-crimson", border: "border-brand-crimson", hoverBg: "hover:bg-brand-crimson/10", bgLight: "bg-brand-crimson/10" },
-  charcoal: { text: "text-brand-charcoal", bg: "bg-brand-charcoal", border: "border-brand-charcoal", hoverBg: "hover:bg-brand-charcoal/10", bgLight: "bg-brand-charcoal/10" },
+  crimson: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10" },
+  charcoal: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10" },
 } as const;
 
 const qaList = ["QA CARL", "QA CLARENCE", "QA CLEOFAS", "QA DENIELLA", "QA HANAZAIRA", "QA JHONMEL", "QA JONASH", "QA LIZA", "QA STEFFANY", "QA TANIA", "QA VERONICA"];
@@ -51,7 +51,7 @@ export default function AddAgentModal({ open, onClose, onSave, accent }: AddAgen
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative mx-4 w-full max-w-[560px] rounded-2xl border border-border-default bg-white shadow-2xl">
+      <div className="relative mx-4 w-full max-w-[560px] rounded-2xl border border-border-default bg-card shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border-subtle px-6 py-4">
           <h2 className="flex items-center gap-2.5 text-[16px] font-bold text-text-primary">
@@ -77,7 +77,7 @@ export default function AddAgentModal({ open, onClose, onSave, accent }: AddAgen
                 value={id}
                 onChange={(e) => setId(e.target.value)}
                 placeholder="Enter employee ID"
-                className="w-full rounded-lg border border-border-default bg-white px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
+                className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
               />
             </FormField>
 
@@ -87,7 +87,7 @@ export default function AddAgentModal({ open, onClose, onSave, accent }: AddAgen
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Enter full name"
-                className="w-full rounded-lg border border-border-default bg-white px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
+                className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
               />
             </FormField>
 
@@ -97,7 +97,7 @@ export default function AddAgentModal({ open, onClose, onSave, accent }: AddAgen
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter email address"
-                className="w-full rounded-lg border border-border-default bg-white px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
+                className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
               />
             </FormField>
 
@@ -106,7 +106,7 @@ export default function AddAgentModal({ open, onClose, onSave, accent }: AddAgen
                 type="date"
                 value={hireDate}
                 onChange={(e) => setHireDate(e.target.value)}
-                className="w-full rounded-lg border border-border-default bg-white px-3 py-2 text-[13px] text-text-primary outline-none transition focus:border-border-accent focus:ring-1 focus:ring-border-accent"
+                className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition focus:border-border-accent focus:ring-1 focus:ring-border-accent"
               />
             </FormField>
 
@@ -136,7 +136,7 @@ export default function AddAgentModal({ open, onClose, onSave, accent }: AddAgen
         <div className="flex items-center justify-end gap-3 border-t border-border-subtle px-6 py-4">
           <button
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-white px-4 py-2 text-[13px] font-semibold text-text-secondary transition hover:bg-surface-overlay"
+            className="rounded-lg border border-border-default bg-card px-4 py-2 text-[13px] font-semibold text-text-secondary transition hover:bg-surface-overlay"
           >
             Cancel
           </button>
@@ -168,7 +168,7 @@ function SelectField({ value, onChange, options, placeholder }: { value: string;
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full appearance-none rounded-lg border border-border-default bg-white py-2 pl-3 pr-8 text-[13px] text-text-primary outline-none transition focus:border-border-accent focus:ring-1 focus:ring-border-accent"
+        className="w-full appearance-none rounded-lg border border-border-default bg-card py-2 pl-3 pr-8 text-[13px] text-text-primary outline-none transition focus:border-border-accent focus:ring-1 focus:ring-border-accent"
       >
         {placeholder && <option value="">{placeholder}</option>}
         {options.filter(Boolean).map((opt) => (

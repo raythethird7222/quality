@@ -11,10 +11,10 @@ type EvaluationDetailViewProps = {
 };
 
 const accentColor = {
-  gold: { text: "text-brand-gold", bg: "bg-brand-gold", border: "border-brand-gold", hoverBg: "hover:bg-brand-gold/10", bgLight: "bg-brand-gold/10", hex: "#C8A54B" },
-  indigo: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798" },
-  crimson: { text: "text-brand-crimson", bg: "bg-brand-crimson", border: "border-brand-crimson", hoverBg: "hover:bg-brand-crimson/10", bgLight: "bg-brand-crimson/10", hex: "#ED1C25" },
-  charcoal: { text: "text-brand-charcoal", bg: "bg-brand-charcoal", border: "border-brand-charcoal", hoverBg: "hover:bg-brand-charcoal/10", bgLight: "bg-brand-charcoal/10", hex: "#363435" },
+  gold: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798", hoverText: "hover:text-brand-indigo" },
+  indigo: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798", hoverText: "hover:text-brand-indigo" },
+  crimson: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798", hoverText: "hover:text-brand-indigo" },
+  charcoal: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798", hoverText: "hover:text-brand-indigo" },
 } as const;
 
 type Clause = { code: string; description: string; checked: boolean };
@@ -58,12 +58,12 @@ export default function EvaluationDetailView({ account, personName, evaluationId
 
   return (
     <div className="min-h-screen bg-surface-base text-text-primary">
-      <div className="mx-auto max-w-[1100px] px-6 py-5 md:px-9">
+      <div className="mx-auto max-w-[1440px] px-6 py-5 md:px-9">
         {/* Breadcrumb */}
         <nav className="flex flex-wrap items-center gap-3 text-[13px]" aria-label="Breadcrumb">
           <Link
             href={`/${account}/roster/${personName}`}
-            className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-white px-3.5 py-2 font-medium ${a.text} transition ${a.hoverBg}`}
+            className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-card px-3.5 py-2 font-medium ${a.text} transition ${a.hoverBg}`}
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Calendar
@@ -71,16 +71,16 @@ export default function EvaluationDetailView({ account, personName, evaluationId
           <div className="flex items-center gap-2 text-text-muted">
             <Link href="/" className="transition hover:text-brand-indigo">Home</Link>
             <span>/</span>
-            <Link href={`/${account}`} className={`transition hover:${a.text}`}>{account.toUpperCase()}</Link>
+            <Link href={`/${account}`} className={`transition ${a.hoverText}`}>{account.toUpperCase()}</Link>
             <span>/</span>
-            <Link href={`/${account}/roster/${personName}`} className={`transition hover:${a.text}`}>{displayName}</Link>
+            <Link href={`/${account}/roster/${personName}`} className={`transition ${a.hoverText}`}>{displayName}</Link>
             <span>/</span>
             <span className={`font-semibold ${a.text}`}>Evaluation</span>
           </div>
         </nav>
 
         {/* Form Card */}
-        <div className="mt-5 overflow-hidden rounded-2xl border border-border-default bg-white shadow-sm">
+        <div className="mt-5 overflow-hidden rounded-2xl border border-border-default bg-card shadow-sm">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border-subtle bg-surface-raised/50 px-6 py-4">
             <h1 className="text-[16px] font-bold text-text-primary">
@@ -182,7 +182,7 @@ export default function EvaluationDetailView({ account, personName, evaluationId
             <div className="mt-6 flex items-center justify-end gap-3 border-t border-border-subtle pt-5">
               <Link
                 href={`/${account}/roster/${personName}`}
-                className="inline-flex items-center gap-2 rounded-lg border border-border-default bg-white px-4 py-2 text-[13px] font-semibold text-text-secondary transition hover:bg-surface-overlay"
+                className="inline-flex items-center gap-2 rounded-lg border border-border-default bg-card px-4 py-2 text-[13px] font-semibold text-text-secondary transition hover:bg-surface-overlay"
               >
                 <RotateCcw size={14} />
                 Terminate Framework

@@ -3,7 +3,7 @@ import RosterCalendarView from "@/features/roster/components/RosterCalendarView"
 const accentMap: Record<string, "gold" | "indigo" | "crimson" | "charcoal"> = {
   js: "gold",
   dft: "indigo",
-  rm: "crimson",
+  rm: "indigo",
   bf: "charcoal",
 };
 

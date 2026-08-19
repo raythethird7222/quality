@@ -17,10 +17,10 @@ type RosterCalendarViewProps = {
 };
 
 const accentColor = {
-  gold: { text: "text-brand-gold", bg: "bg-brand-gold", border: "border-brand-gold", hoverBg: "hover:bg-brand-gold/10", bgLight: "bg-brand-gold/10", hex: "#C8A54B" },
-  indigo: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798" },
-  crimson: { text: "text-brand-crimson", bg: "bg-brand-crimson", border: "border-brand-crimson", hoverBg: "hover:bg-brand-crimson/10", bgLight: "bg-brand-crimson/10", hex: "#ED1C25" },
-  charcoal: { text: "text-brand-charcoal", bg: "bg-brand-charcoal", border: "border-brand-charcoal", hoverBg: "hover:bg-brand-charcoal/10", bgLight: "bg-brand-charcoal/10", hex: "#363435" },
+  gold: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798", hoverText: "hover:text-brand-indigo" },
+  indigo: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798", hoverText: "hover:text-brand-indigo" },
+  crimson: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798", hoverText: "hover:text-brand-indigo" },
+  charcoal: { text: "text-brand-indigo", bg: "bg-brand-indigo", border: "border-brand-indigo", hoverBg: "hover:bg-brand-indigo/10", bgLight: "bg-brand-indigo/10", hex: "#2F6798", hoverText: "hover:text-brand-indigo" },
 } as const;
 
 const evaluationDays = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
@@ -84,7 +84,7 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
         <nav className="flex flex-wrap items-center gap-3 text-[13px]" aria-label="Breadcrumb">
           <Link
             href={`/${account}/dashboard`}
-            className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-white px-3.5 py-2 font-medium ${a.text} transition ${a.hoverBg}`}
+            className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-card px-3.5 py-2 font-medium ${a.text} transition ${a.hoverBg}`}
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Dashboard
@@ -92,7 +92,7 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
           <div className="flex items-center gap-2 text-text-muted">
             <Link href="/" className="transition hover:text-brand-indigo">Home</Link>
             <span>/</span>
-            <Link href={`/${account}`} className={`transition hover:${a.text}`}>{account.toUpperCase()}</Link>
+            <Link href={`/${account}`} className={`transition ${a.hoverText}`}>{account.toUpperCase()}</Link>
             <span>/</span>
             <span className={`font-semibold ${a.text}`}>{displayName}</span>
           </div>
@@ -112,12 +112,12 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
         </div>
 
         {/* Calendar Card */}
-        <div className="overflow-hidden rounded-2xl border border-border-default bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-border-default bg-card shadow-sm">
           {/* Month Header */}
           <div className="flex items-center justify-between border-b border-border-subtle bg-surface-raised/50 px-6 py-4">
             <button
               onClick={() => setCurrentMonth((m) => (m === 0 ? 11 : m - 1))}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-default bg-white text-text-muted transition hover:border-border-accent hover:text-text-primary hover:shadow-sm"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-default bg-card text-text-muted transition hover:border-border-accent hover:text-text-primary hover:shadow-sm"
             >
               <ChevronLeft size={16} />
             </button>
@@ -127,7 +127,7 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
             </div>
             <button
               onClick={() => setCurrentMonth((m) => (m === 11 ? 0 : m + 1))}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-default bg-white text-text-muted transition hover:border-border-accent hover:text-text-primary hover:shadow-sm"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-default bg-card text-text-muted transition hover:border-border-accent hover:text-text-primary hover:shadow-sm"
             >
               <ChevronRight size={16} />
             </button>
@@ -157,10 +157,10 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
                   onClick={() => setPopupDay(day)}
                   className={`group relative flex min-h-[90px] flex-col border-b border-r border-border-subtle/50 p-2.5 transition-all duration-150 ${
                     isToday
-                      ? `border-2 ${a.border} bg-white`
+                      ? `border-2 ${a.border} bg-card`
                       : hasEvaluation
-                        ? "bg-white hover:shadow-md hover:z-10"
-                        : "bg-white hover:bg-surface-overlay/50"
+                        ? "bg-card hover:shadow-md hover:z-10"
+                        : "bg-card hover:bg-surface-overlay/50"
                   }`}
                 >
                   {/* Day Number */}
@@ -209,7 +209,7 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
               Today
             </span>
             <span className="flex items-center gap-2 text-[11px] text-text-muted">
-              <span className="h-2.5 w-2.5 rounded border border-border-default bg-white" />
+              <span className="h-2.5 w-2.5 rounded border border-border-default bg-card" />
               No Evaluation
             </span>
           </div>
@@ -221,13 +221,13 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
         <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={() => setPopupDay(null)}>
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
           <div
-            className="relative w-full max-w-[400px] rounded-2xl border border-border-default bg-white shadow-2xl"
+            className="relative w-full max-w-[400px] rounded-2xl border border-border-default bg-card shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Close button */}
             <button
               onClick={() => setPopupDay(null)}
-              className="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border border-border-default bg-white text-text-muted transition hover:bg-surface-overlay hover:text-text-primary"
+              className="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border border-border-default bg-card text-text-muted transition hover:bg-surface-overlay hover:text-text-primary"
             >
               <span className="text-[16px] leading-none">&times;</span>
             </button>
@@ -259,7 +259,7 @@ export default function RosterCalendarView({ account, personName, accent }: Rost
                       </div>
                       <button
                         onClick={() => router.push(`/${account}/roster/${personName}/evaluation/eval-${account}-cxl-${popupDay}-05aug2026-01`)}
-                        className={`flex-shrink-0 rounded-lg border ${a.border} bg-white px-3 py-1.5 text-[11px] font-semibold ${a.text} transition ${a.hoverBg}`}
+                        className={`flex-shrink-0 rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition ${a.hoverBg}`}
                       >
                         View
                       </button>
