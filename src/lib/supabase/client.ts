@@ -15,6 +15,10 @@ export function createBrowserClient() {
       flowType: "pkce",
       persistSession: true,
       autoRefreshToken: true,
+      // The /auth/callback page exchanges the code manually. Disabling
+      // auto-detection prevents the client from consuming the PKCE code
+      // verifier on load, which caused "code verifier not found" errors.
+      detectSessionInUrl: false,
     },
   });
 }
