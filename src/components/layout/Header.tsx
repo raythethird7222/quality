@@ -5,14 +5,18 @@ import ThemeToggle from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { ChevronDown, LogOut, Settings, User } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
+import { useAccentHex } from "@/features/settings/useAccent";
 
-const avatarSvg =
-  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%23E8E7E5'><rect width='100' height='100'/><text x='50%' y='55%' font-family='sans-serif' font-size='32' font-weight='bold' fill='%232F6798' dominant-baseline='middle' text-anchor='middle'>QA</text></svg>";
+function getAvatarSvg(hex: string) {
+  const fill = hex.replace("#", "%23");
+  return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%23E8E7E5'><rect width='100' height='100'/><text x='50%' y='55%' font-family='sans-serif' font-size='32' font-weight='bold' fill='${fill}' dominant-baseline='middle' text-anchor='middle'>QA</text></svg>`;
+}
 
 export default function Header() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const accentHex = useAccentHex();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -67,7 +71,7 @@ export default function Header() {
               {/* eslint-disable-next-line @next/next/no-img-element -- SVG data URI avatar or stored profile photo */}
               <img
                 className="h-9 w-9 rounded-full"
-                src={user?.avatar_url ?? avatarSvg}
+                src={user?.avatar_url ?? getAvatarSvg(accentHex)}
                 alt="QA Avatar Element"
               />
               <span

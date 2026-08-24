@@ -28,7 +28,6 @@ export default function AccountDashboardPage() {
     <AccountFrameworkView
       account={config.label}
       qaName={config.qaName}
-      accent={config.accent}
     />
   );
 }

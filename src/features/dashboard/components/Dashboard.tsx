@@ -11,10 +11,12 @@ import {
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { ACCOUNTS, getAccentColors } from "@/features/accounts/config";
 import AvatarCropModal from "@/components/ui/avatar-crop-modal";
+import { useAccent } from "@/features/settings/useAccent";
 import type {
   AccountKey,
   AccountAssignment,
   UserRole,
+  Accent,
 } from "@/types";
 
 type AccountLink = {
@@ -37,7 +39,8 @@ const MANAGER_ROLES: UserRole[] = [
 
 function getAccountsForUser(
   accounts: AccountAssignment[],
-  role: UserRole
+  role: UserRole,
+  accent: Accent
 ): AccountLink[] {
   const allAccounts: AccountAssignment[] = (Object.keys(
     ACCOUNTS
@@ -58,7 +61,7 @@ function getAccountsForUser(
   return list.map((assignment) => {
     const accountKey = assignment.account.toLowerCase() as AccountKey;
     const config = ACCOUNTS[accountKey];
-    const colors = getAccentColors("gold");
+    const colors = getAccentColors(accent);
     return {
       label: config.label,
       description: `${config.label} Operations`,
@@ -66,7 +69,7 @@ function getAccountsForUser(
         ? `/accounts/${accountKey}`
         : `/accounts/${accountKey}/dashboard`,
       icon: Zap,
-      accent: "gold",
+      accent,
       borderClass: colors.border,
       fillClass: colors.bgLight,
       colorClass: colors.text,
@@ -103,8 +106,10 @@ export default function Dashboard() {
     .slice(0, 2)
     .toUpperCase();
 
+  const selectedAccent = useAccent();
+  const a = getAccentColors(selectedAccent);
   const accounts = user
-    ? getAccountsForUser(user.accounts ?? [], user.role)
+    ? getAccountsForUser(user.accounts ?? [], user.role, selectedAccent)
     : [];
 
   const displayedAvatar = avatarImage ?? user?.avatar_url ?? null;
@@ -170,7 +175,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="group relative grid h-[118px] w-[118px] shrink-0 place-items-center rounded-full border-2 border-brand-gold bg-surface-raised outline outline-2 outline-offset-[8px] outline-dashed outline-brand-gold/90"
+                className={`group relative grid h-[118px] w-[118px] shrink-0 place-items-center rounded-full border-2 ${a.border} bg-surface-raised outline outline-2 outline-offset-[8px] outline-dashed outline-brand-gold/90`}
                 aria-label="Upload profile photo"
               >
                 {displayedAvatar ? (
@@ -181,7 +186,7 @@ export default function Dashboard() {
                     className="h-[110px] w-[110px] rounded-full object-cover"
                   />
                 ) : (
-                  <span className="text-[42px] font-medium text-brand-charcoal transition group-hover:opacity-0">
+                  <span className={`text-[42px] font-medium ${a.text} transition group-hover:opacity-0`}>
                     {initials}
                   </span>
                 )}
@@ -200,16 +205,16 @@ export default function Dashboard() {
                 <p className="text-[28px] font-bold leading-none tracking-tight sm:text-[30px]">
                   {name}
                 </p>
-                <p className="mt-3 text-[15px] font-medium text-brand-indigo">
+                <p className={`mt-3 text-[15px] font-medium ${a.text}`}>
                   QA ID: {user?.employee_id ?? "--"}
                 </p>
-                <p className="mt-7 text-[15px] text-brand-indigo">
+                <p className={`mt-7 text-[15px] ${a.text}`}>
                   {user?.employee_email ?? "--"}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-5 border-brand-gold md:min-w-[330px] md:border-l-2 md:py-7 md:pl-8">
-              <span className="grid h-[60px] w-[60px] place-items-center rounded-xl bg-brand-gold text-white">
+              <div className={`flex items-center gap-5 ${a.border} md:min-w-[330px] md:border-l-2 md:py-7 md:pl-8`}>
+                <span className={`grid h-[60px] w-[60px] place-items-center rounded-xl ${a.bg} text-white`}>
                 <CalendarDays
                   className="h-9 w-9 stroke-[2.5]"
                   aria-hidden="true"
@@ -232,7 +237,7 @@ export default function Dashboard() {
         <section className="mt-7" aria-labelledby="accounts-heading">
           <h2
             id="accounts-heading"
-            className="border-l-[7px] border-brand-gold pl-2 text-[26px] font-semibold leading-8 text-text-primary"
+            className={`border-l-[7px] ${a.border} pl-2 text-[26px] font-semibold leading-8 text-text-primary`}
           >
             Allocated Dynamic Control Accounts
           </h2>

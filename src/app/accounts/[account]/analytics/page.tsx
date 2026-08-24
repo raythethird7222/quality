@@ -28,7 +28,6 @@ export default function AccountAnalyticsPage() {
     <TeamAnalyticsView
       account={config.label}
       qaName={config.qaName}
-      accent={config.accent}
     />
   );
 }

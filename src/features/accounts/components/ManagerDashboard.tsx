@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { BarChart3, LineChart, ShieldCheck, UsersRound } from "lucide-react";
 import Breadcrumb from "@/components/shared/Breadcrumb";
-import { getAccentColors, ACCOUNTS } from "@/features/accounts/config";
-import type { Accent, AccountKey, TeamMember } from "@/types";
+import { getAccentColors } from "@/features/accounts/config";
+import { useAccent } from "@/features/settings/useAccent";
+import type { TeamMember } from "@/types";
 
 type ManagerDashboardProps = {
   account: string;
@@ -13,13 +14,6 @@ type ManagerDashboardProps = {
   members: TeamMember[];
 };
 
-const brandMix = [
-  getAccentColors("indigo"),
-  getAccentColors("gold"),
-  getAccentColors("crimson"),
-  getAccentColors("charcoal"),
-];
-
 export default function ManagerDashboard({
   account,
   agents,
@@ -27,9 +21,8 @@ export default function ManagerDashboard({
   members,
 }: ManagerDashboardProps) {
   const unit = account.toLowerCase();
-  const accountKey = unit as AccountKey;
-  const config = ACCOUNTS[accountKey];
-  const accent: Accent = config?.accent ?? "indigo";
+  const selectedAccent = useAccent();
+  const a = getAccentColors(selectedAccent);
 
   return (
     <div className="min-h-full bg-surface-base text-text-primary">
@@ -37,7 +30,7 @@ export default function ManagerDashboard({
         <Breadcrumb
           backHref="/dashboard"
           segments={[{ label: account }]}
-          accent={accent}
+          accent={selectedAccent}
         />
 
         <section className="mt-5 rounded-2xl border border-border-default bg-card p-6 shadow-sm md:p-7">
@@ -57,18 +50,18 @@ export default function ManagerDashboard({
                   label="Total Agents"
                   value={agents}
                   icon={UsersRound}
-                  a={brandMix[0]}
+                  a={a}
                 />
                 <StatCard
                   label="Total QAs"
                   value={qaCount}
                   icon={ShieldCheck}
-                  a={brandMix[1]}
+                  a={a}
                 />
               </div>
               <Link
                 href={`/accounts/${unit}/analytics`}
-                className={`mt-3 flex items-center justify-center gap-2 rounded-lg border ${brandMix[0].border} bg-card px-3 py-2.5 text-[13px] font-semibold ${brandMix[0].text} transition ${brandMix[0].hoverBg}`}
+                className={`mt-3 flex items-center justify-center gap-2 rounded-lg border ${a.border} bg-card px-3 py-2.5 text-[13px] font-semibold ${a.text} transition ${a.hoverBg}`}
               >
                 <BarChart3 className="h-4 w-4" />
                 Manager Analytics
@@ -88,7 +81,7 @@ export default function ManagerDashboard({
           ) : (
             <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {members.map((member, i) => {
-                const m = brandMix[i % brandMix.length];
+                const m = a;
                 return (
                   <article
                     key={member.name}
