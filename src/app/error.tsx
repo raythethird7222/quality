@@ -26,9 +26,10 @@ export default function GlobalError({
           onClick={reset}
           className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-indigo px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-indigo/90"
         >
-          Try Again
+          Try Again later
         </button>
       </div>
     </div>
   );
 }
+// chuchu
