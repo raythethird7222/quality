@@ -21,7 +21,8 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error:
-            "No employee record found for this Google account. Please contact your administrator.",
+            `No employee record found for "${email}". This Google account is not registered. ` +
+            "Please use your work email or contact your administrator.",
         },
         { status: 403 }
       );

@@ -152,6 +152,20 @@ export default function LoginPage() {
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
+  // Surface errors returned in the URL (e.g. after a failed Google sign-in
+  // where the email isn't registered), then clean the param so a refresh
+  // doesn't re-show it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlError = params.get("error");
+    if (urlError) {
+      setError(urlError);
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("error");
+      window.history.replaceState({}, "", cleanUrl.toString());
+    }
+  }, []);
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
