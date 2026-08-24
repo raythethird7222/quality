@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/components/ui/ThemeProvider";
 import GlobalHeader from "@/components/layout/Header";
+import GlobalChatbot from "@/components/layout/GlobalChatbot";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -48,6 +49,7 @@ export default function RootLayout({
           <AuthProvider>
             <GlobalHeader />
             <main className="flex-1 overflow-y-auto">{children}</main>
+            <GlobalChatbot />
           </AuthProvider>
         </ThemeProvider>
       </body>
