@@ -17,12 +17,12 @@ import {
 import AssignmentModal from "@/components/ui/assignment-modal";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
-import type { Accent, AgentPerformance } from "@/types";
+import { useAccent } from "@/features/settings/useAccent";
+import type { AgentPerformance } from "@/types";
 
 type AccountFrameworkViewProps = {
   account: string;
   qaName: string;
-  accent: Accent;
 };
 
 const people: AgentPerformance[] = [];
@@ -30,12 +30,12 @@ const people: AgentPerformance[] = [];
 export default function AccountFrameworkView({
   account,
   qaName,
-  accent,
 }: AccountFrameworkViewProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
   const unit = account.toLowerCase();
-  const a = getAccentColors(accent);
+  const selectedAccent = useAccent();
+  const a = getAccentColors(selectedAccent);
 
   return (
     <div className="min-h-full bg-surface-base text-text-primary">
@@ -46,7 +46,7 @@ export default function AccountFrameworkView({
             { label: account },
             { label: "Dashboard" },
           ]}
-          accent={accent}
+          accent={selectedAccent}
         />
 
         {/* Main Card */}
@@ -254,7 +254,6 @@ export default function AccountFrameworkView({
               description="Direct alignment mapping metrics (Read-Only access rights enforced)"
               account={unit}
               qaName={qaName}
-              accent={accent}
               showQa
             />
             <RosterPanel
@@ -262,7 +261,6 @@ export default function AccountFrameworkView({
               description="Select an agent below to build execution forms or modify history footprints"
               account={unit}
               qaName={qaName}
-              accent={accent}
             />
           </div>
         </section>
@@ -270,7 +268,7 @@ export default function AccountFrameworkView({
       <AssignmentModal
         open={assignmentOpen}
         onClose={() => setAssignmentOpen(false)}
-        accent={accent}
+        accent={selectedAccent}
       />
     </div>
   );
@@ -315,17 +313,15 @@ function RosterPanel({
   description,
   account,
   qaName,
-  accent,
   showQa = false,
 }: {
   title: string;
   description: string;
   account: string;
   qaName: string;
-  accent: Accent;
   showQa?: boolean;
 }) {
-  const a = getAccentColors(accent);
+  const a = getAccentColors(useAccent());
   return (
     <section className="rounded-xl border border-border-subtle bg-card p-4">
       <h2 className="flex items-center gap-2 text-[14px] font-bold text-text-primary">

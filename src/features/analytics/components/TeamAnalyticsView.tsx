@@ -36,13 +36,11 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
-import { useAccentHex } from "@/features/settings/useAccent";
-import type { Accent } from "@/types";
+import { useAccent, useAccentHex } from "@/features/settings/useAccent";
 
 type TeamAnalyticsViewProps = {
   account: string;
   qaName: string;
-  accent: Accent;
 };
 
 const trendData: { date: string; value: number }[] = [];
@@ -90,12 +88,12 @@ function RankBadge({ rank, color }: { rank: number; color: string }) {
 export default function TeamAnalyticsView({
   account,
   qaName,
-  accent,
 }: TeamAnalyticsViewProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [activeTimeframe, setActiveTimeframe] = useState<string>("Daily");
   const unit = account.toLowerCase();
-  const a = getAccentColors(accent);
+  const selectedAccent = useAccent();
+  const a = getAccentColors(selectedAccent);
   const accentHex = useAccentHex();
 
   const trendChartConfig = {
@@ -103,9 +101,9 @@ export default function TeamAnalyticsView({
   } satisfies ChartConfig;
 
   const pieChartConfig = {
-    "pie-main": { label: "MAIN", color: "#2F6798" },
-    "pie-support": { label: "SUPPORT", color: "#C8A54B" },
-    "pie-escalations": { label: "ESCALATIONS", color: "#ED1C25" },
+    "pie-main": { label: "MAIN", color: accentHex },
+    "pie-support": { label: "SUPPORT", color: "#6B7280" },
+    "pie-escalations": { label: "ESCALATIONS", color: "#EF4444" },
   } satisfies ChartConfig;
 
   const barChartConfig = {
@@ -119,7 +117,7 @@ export default function TeamAnalyticsView({
           backHref={`/accounts/${unit}/dashboard`}
           backLabel="Back to Dashboard"
           segments={[{ label: "Team Performance Analytics" }]}
-          accent={accent}
+          accent={selectedAccent}
         />
 
         {/* Header */}
