@@ -3,9 +3,11 @@
 import { Moon, Sun, Monitor } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
 
+// Cycles between light, dark, and system themes with an icon button.
 export default function ThemeToggle() {
   const { theme, setTheme } = useTheme();
 
+  // Advances to the next theme in the light → dark → system cycle.
   function toggle() {
     const themes: Array<"light" | "dark" | "system"> = ["light", "dark", "system"];
     const currentIndex = themes.indexOf(theme);
@@ -13,6 +15,7 @@ export default function ThemeToggle() {
     setTheme(themes[nextIndex]);
   }
 
+  // Icon and label maps keyed by the current theme.
   const icons = {
     light: <Sun className="h-4 w-4" />,
     dark: <Moon className="h-4 w-4" />,

@@ -1,10 +1,14 @@
+// Small shared utilities: className merging and display-name formatting.
+
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+// Merges class names with clsx and resolves conflicting Tailwind utilities.
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Converts a kebab-case slug into a human-readable display name.
 export function slugToDisplayName(slug: string): string {
   return slug
     .split("-")
@@ -12,6 +16,7 @@ export function slugToDisplayName(slug: string): string {
     .join(" ");
 }
 
+// Derives up-to-two-letter uppercase initials from a full name.
 export function getInitials(name: string): string {
   return name
     .split(" ")

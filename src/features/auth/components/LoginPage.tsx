@@ -1,9 +1,11 @@
 "use client";
 
+// Login page: branded auth screen with credentials and Google sign-in.
 import { useEffect, useState } from "react";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { createBrowserClient } from "@/lib/supabase/client";
 
+// Visual decoration element shapes rendered behind the login card.
 type Decoration =
   | {
       type: "circle";
@@ -25,11 +27,13 @@ type Decoration =
       color: "brand-gold";
     };
 
+// Maps decoration color keys to their background utility classes.
 const COLOR_BG: Record<Decoration["color"], string> = {
   "brand-indigo": "bg-brand-indigo",
   "brand-gold": "bg-brand-gold",
 };
 
+// Maps a column count to its responsive grid utility class.
 const GRID_COLUMNS: Record<number, string> = {
   1: "grid-cols-1",
   2: "grid-cols-2",
@@ -45,6 +49,7 @@ const GRID_COLUMNS: Record<number, string> = {
   12: "grid-cols-12",
 };
 
+// Static list of decorative shapes for the login background.
 const DECORATIONS: Decoration[] = [
   {
     type: "circle",
@@ -81,10 +86,12 @@ const DECORATIONS: Decoration[] = [
   },
 ];
 
+// Renders the absolute-positioned brand decoration layer.
 function BackgroundDecorations() {
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
       {DECORATIONS.map((decoration, index) => {
+        // Render a large translucent circle decoration.
         if (decoration.type === "circle") {
           return (
             <div
@@ -94,12 +101,14 @@ function BackgroundDecorations() {
           );
         }
 
+        // Render a grid of small dot decorations.
         if (decoration.type === "dots") {
           return (
             <div
               key={index}
               className={`absolute grid ${GRID_COLUMNS[decoration.columns] ?? GRID_COLUMNS[6]} gap-4 ${decoration.className} ${decoration.opacity}`}
             >
+              {/* Render one dot element per configured count */}
               {Array.from({ length: decoration.count }).map((_, dotIndex) => (
                 <span
                   key={dotIndex}
@@ -121,13 +130,20 @@ function BackgroundDecorations() {
   );
 }
 
+// Login page component: handles credential + Google auth and session restore.
 export default function LoginPage() {
   const { login } = useAuth();
+  // Toggles visibility of the password field between masked and plaintext.
   const [showPassword, setShowPassword] = useState(false);
+  // Holds the entered username/email value.
   const [username, setUsername] = useState("");
+  // Holds the entered password value.
   const [password, setPassword] = useState("");
+  // Holds an inline auth error message to display to the user.
   const [error, setError] = useState("");
+  // True while a credential login request is in flight (disables inputs).
   const [submitting, setSubmitting] = useState(false);
+  // True while the Google OAuth redirect is being initiated.
   const [googleLoading, setGoogleLoading] = useState(false);
 
   // Browsers may restore this page from the back/forward cache after login,
@@ -166,6 +182,7 @@ export default function LoginPage() {
     }
   }, []);
 
+  // Submit handler for the username/password login form.
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
@@ -181,6 +198,7 @@ export default function LoginPage() {
     }
   }
 
+  // Initiates the Google OAuth sign-in redirect flow.
   async function handleGoogleLogin() {
     setError("");
     setGoogleLoading(true);
@@ -339,6 +357,7 @@ export default function LoginPage() {
                   placeholder="Enter your email or username"
                   value={username}
                   disabled={submitting}
+                  // Update the username and clear any prior error on each keystroke.
                   onChange={(e) => { setUsername(e.target.value); setError(""); }}
                   className="w-full h-11 pl-11 pr-4 rounded-lg border border-border bg-card text-foreground text-sm outline-none transition-all placeholder:text-muted-foreground focus:border-brand-indigo focus:ring-3 focus:ring-brand-indigo/10 disabled:cursor-not-allowed disabled:opacity-70"
                 />
@@ -368,15 +387,17 @@ export default function LoginPage() {
 
                 <input
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
+                  placeholder="Enter your employee code"
                   value={password}
                   disabled={submitting}
+                  // Update the password and clear any prior error on each keystroke.
                   onChange={(e) => { setPassword(e.target.value); setError(""); }}
                   className="w-full h-11 pl-11 pr-11 rounded-lg border border-border bg-card text-foreground text-sm outline-none transition-all placeholder:text-muted-foreground focus:border-brand-indigo focus:ring-3 focus:ring-brand-indigo/10 disabled:cursor-not-allowed disabled:opacity-70"
                 />
 
                 <button
                   type="button"
+                  // Toggle the password field between masked and plaintext.
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-brand-indigo"
                 >

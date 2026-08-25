@@ -1,27 +1,39 @@
 "use client";
 
+// Header: top navigation bar with theme toggle and the user profile menu.
 import { useEffect, useRef, useState } from "react";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { ChevronDown, LogOut, Settings, User } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAccentHex } from "@/features/settings/useAccent";
+import { Menu } from "lucide-react";
 
+// Builds a data-URI SVG avatar fallback colored with the active accent.
 function getAvatarSvg(hex: string) {
   const fill = hex.replace("#", "%23");
   return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%23E8E7E5'><rect width='100' height='100'/><text x='50%' y='55%' font-family='sans-serif' font-size='32' font-weight='bold' fill='${fill}' dominant-baseline='middle' text-anchor='middle'>QA</text></svg>`;
 }
 
-export default function Header() {
+// Renders the responsive header with mobile menu toggle and profile dropdown.
+export default function Header({
+  onMenuClick,
+}: {
+  onMenuClick?: () => void;
+}) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const accentHex = useAccentHex();
+  // Tracks client mount to avoid hydration mismatches before rendering.
   const [mounted, setMounted] = useState(false);
+  // Tracks whether the profile dropdown menu is open.
   const [open, setOpen] = useState(false);
+  // Ref to the profile menu container for outside-click detection.
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Hydration-safe mount detection
+  // Marks the component as mounted so theme/client-only UI can render safely.
   useEffect(() => {
     setMounted(true); // eslint-disable-line react-hooks/set-state-in-effect -- Standard hydration pattern
   }, []);
@@ -50,15 +62,17 @@ export default function Header() {
   return (
     <header className="border-b border-border bg-surface-base/80 backdrop-blur">
       <nav className="navbar mx-auto flex max-w-[1440px] items-center justify-between px-6 py-3.5 md:px-10">
-        {/* Left: Brand */}
-        <div className="nav_branding flex items-center">
-          <span className="text-lg font-bold tracking-tight text-text-primary">
-            QA<span className="text-brand-gold">-</span>REY
-          </span>
-        </div>
+        {/* Left: Mobile menu toggle */}
+        <button
+          onClick={onMenuClick}
+          aria-label="Open navigation"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border-default bg-surface-raised text-text-primary transition-colors hover:bg-surface-overlay md:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
 
         {/* Right: User controls */}
-        <div className="flex items-center gap-2.5 md:gap-3">
+        <div className="ml-auto flex items-center gap-2.5 md:gap-3">
           <ThemeToggle />
           <div ref={menuRef} className="relative">
             <button
@@ -87,6 +101,7 @@ export default function Header() {
             </button>
 
             {open && (
+              // Dropdown menu with profile, settings, and logout actions.
               <div
                 role="menu"
                 className="absolute right-0 top-[calc(100%+8px)] z-50 w-52 overflow-hidden rounded-lg border border-border-default bg-card py-1.5 shadow-lg"

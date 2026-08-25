@@ -1,5 +1,6 @@
 "use client";
 
+// QA assignment modal: search, filter, bulk-edit, and add agents in a table.
 import { useMemo, useState } from "react";
 import {
   Check,
@@ -14,15 +15,18 @@ import AddAgentModal from "./add-agent-modal";
 import { getAccentColors } from "@/features/accounts/config";
 import type { Accent } from "@/types";
 
+// Props for the assignment modal including agent list and selectable options.
 type AssignmentModalProps = {
   open: boolean;
   onClose: () => void;
   accent: Accent;
+  qaList: string[];
+  lobOptions: string[];
+  teamLeads: string[];
+  initialAgents: AgentRow[];
 };
 
-const qaList: string[] = [];
-const lobOptions = ["ALL", "CXL", "NEGOT"];
-
+// Shape of a single agent row in the assignment table.
 type AgentRow = {
   name: string;
   lob: string;
@@ -32,14 +36,19 @@ type AgentRow = {
   status: string;
 };
 
-const initialAgents: AgentRow[] = [];
-
+// Assignment modal: manages agent table state, filtering, and bulk updates.
 export default function AssignmentModal({
   open,
   onClose,
   accent,
+  qaList,
+  lobOptions,
+  teamLeads,
+  initialAgents,
 }: AssignmentModalProps) {
+  // Resolve accent color tokens for buttons and icons.
   const a = getAccentColors(accent);
+  // Local state: search/filter controls, selection set, bulk-edit values, agent rows, and add-agent visibility.
   const [search, setSearch] = useState("");
   const [lobFilter, setLobFilter] = useState("ALL");
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -49,6 +58,7 @@ export default function AssignmentModal({
   const [agents, setAgents] = useState(initialAgents);
   const [addAgentOpen, setAddAgentOpen] = useState(false);
 
+  // Derived list of agents matching the current search text and LOB filter.
   const filtered = useMemo(() => {
     return agents.filter((agent) => {
       const matchSearch = agent.name
@@ -60,6 +70,7 @@ export default function AssignmentModal({
     });
   }, [agents, search, lobFilter]);
 
+  // True when every visible (filtered) agent is in the selection set.
   const allSelected =
     filtered.length > 0 &&
     filtered.every((_, i) => {
@@ -67,6 +78,7 @@ export default function AssignmentModal({
       return selected.has(idx);
     });
 
+  // Selects or clears all currently filtered agents in one action.
   function toggleSelectAll() {
     if (allSelected) {
       setSelected(new Set());
@@ -79,6 +91,7 @@ export default function AssignmentModal({
     }
   }
 
+  // Toggles a single agent's row selection by its index.
   function toggleSelect(idx: number) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -88,6 +101,7 @@ export default function AssignmentModal({
     });
   }
 
+  // Applies the chosen bulk coach to every selected agent row.
   function applyBulkCoach() {
     if (!bulkCoach) return;
     setAgents((prev) =>
@@ -97,6 +111,7 @@ export default function AssignmentModal({
     );
   }
 
+  // Applies the chosen bulk evaluator to every selected agent row.
   function applyBulkEvaluator() {
     if (!bulkEvaluator) return;
     setAgents((prev) =>
@@ -108,6 +123,7 @@ export default function AssignmentModal({
     );
   }
 
+  // Applies the chosen bulk team lead to every selected agent row.
   function applyBulkTeamLead() {
     if (!bulkTeamLead) return;
     setAgents((prev) =>
@@ -119,6 +135,7 @@ export default function AssignmentModal({
     );
   }
 
+  // Appends a newly created agent row to the agent list.
   function addAgent(agentData: {
     id: string;
     name: string;
@@ -143,8 +160,10 @@ export default function AssignmentModal({
     ]);
   }
 
+  // Render nothing when the modal is closed.
   if (!open) return null;
 
+  // Main modal layout: header, toolbar, bulk actions, table, and footer.
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
@@ -273,6 +292,11 @@ export default function AssignmentModal({
               className="appearance-none rounded-lg border border-border-default bg-card py-1.5 pl-3 pr-8 text-[12px] text-text-primary outline-none"
             >
               <option value="">-- Select Team Lead --</option>
+              {teamLeads.map((tl) => (
+                <option key={tl} value={tl}>
+                  {tl}
+                </option>
+              ))}
             </select>
             <ChevronDown
               size={12}
@@ -362,6 +386,7 @@ export default function AssignmentModal({
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                          // Color the badge by active vs. inactive status.
                           agent.status === "Active"
                             ? "bg-brand-indigo/10 text-brand-indigo"
                             : "bg-brand-gold/10 text-brand-gold"
@@ -376,6 +401,7 @@ export default function AssignmentModal({
                   </tr>
                 );
               })}
+              {/* Empty state shown when no agents match the filters */}
               {filtered.length === 0 && (
                 <tr>
                   <td
@@ -412,6 +438,8 @@ export default function AssignmentModal({
         onClose={() => setAddAgentOpen(false)}
         onSave={addAgent}
         accent={accent}
+        qaList={qaList}
+        teamLeads={teamLeads}
       />
     </div>
   );

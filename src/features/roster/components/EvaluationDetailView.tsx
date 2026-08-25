@@ -1,5 +1,6 @@
 "use client";
 
+// Evaluation detail view: read-only review of a single agent evaluation.
 import Link from "next/link";
 import { Phone, RotateCcw } from "lucide-react";
 import Breadcrumb from "@/components/shared/Breadcrumb";
@@ -7,6 +8,7 @@ import { getAccentColors } from "@/features/accounts/config";
 import { slugToDisplayName } from "@/lib/utils";
 import type { Accent, AttributeGroup } from "@/types";
 
+// Props for the evaluation detail view.
 type EvaluationDetailViewProps = {
   account: string;
   personName: string;
@@ -14,8 +16,10 @@ type EvaluationDetailViewProps = {
   accent: Accent;
 };
 
+// Placeholder evaluation attribute groups (no real data wired yet).
 const mockGroups: AttributeGroup[] = [];
 
+// Main evaluation detail view: header, fields, attribute groups, and notes.
 export default function EvaluationDetailView({
   account,
   personName,
@@ -24,6 +28,7 @@ export default function EvaluationDetailView({
 }: EvaluationDetailViewProps) {
   void evaluationId;
   const a = getAccentColors(accent);
+  // Convert the URL slug back into a human-readable agent name.
   const displayName = slugToDisplayName(personName);
 
   return (
@@ -110,12 +115,13 @@ export default function EvaluationDetailView({
                     completed.
                   </p>
                 </div>
-              ) : (
-                mockGroups.map((group) => (
+                ) : (
+                  mockGroups.map((group) => (
                   <div
                     key={group.code}
                     className="rounded-xl border border-border-default bg-surface-raised/30"
                   >
+                    {/* Render one card per evaluation attribute group */}
                     <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
                       <h3
                         className={`text-[14px] font-bold ${a.text}`}
@@ -128,8 +134,9 @@ export default function EvaluationDetailView({
                       </span>
                     </div>
 
-                    <div className="divide-y divide-border-subtle">
-                      {group.clauses.map((clause) => (
+                     <div className="divide-y divide-border-subtle">
+                       {/* Render one read-only checkbox row per clause */}
+                       {group.clauses.map((clause) => (
                         <label
                           key={clause.code}
                           className="flex cursor-default items-start gap-3 px-4 py-3 transition hover:bg-surface-overlay/30"

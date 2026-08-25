@@ -1,5 +1,6 @@
 "use client";
 
+// Roster calendar view: agent monthly calendar with evaluation days and popup.
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
@@ -8,15 +9,19 @@ import { getAccentColors } from "@/features/accounts/config";
 import { slugToDisplayName } from "@/lib/utils";
 import type { Accent, EvaluationDay } from "@/types";
 
+// Props for the roster calendar view.
 type RosterCalendarViewProps = {
   account: string;
   personName: string;
   accent: Accent;
 };
 
+// Placeholder evaluation day markers (no real data wired yet).
 const evaluationDays: number[] = [];
+// Placeholder map of evaluation day details keyed by day number.
 const evaluationDetails: Record<number, EvaluationDay> = {};
 
+// Month name labels used in the calendar header.
 const months = [
   "January",
   "February",
@@ -32,23 +37,31 @@ const months = [
   "December",
 ];
 
+// Main roster calendar view: header, month grid, legend, and day popup.
 export default function RosterCalendarView({
   account,
   personName,
   accent,
 }: RosterCalendarViewProps) {
+  // Index of the displayed month (0=Jan ... 11=Dec); starts on August.
   const [currentMonth, setCurrentMonth] = useState(7);
+  // Year shown by the calendar (static placeholder).
   const [currentYear] = useState(2026);
+  // Day number for the open detail popup, or null when closed.
   const [popupDay, setPopupDay] = useState<number | null>(null);
   const router = useRouter();
   const a = getAccentColors(accent);
 
+  // Weekday index of the 1st of the month, used for leading empty cells.
   const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+  // Total number of days in the displayed month.
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  // Hard-coded "today" marker (15th) used for highlighting the current day.
   const today = 15;
 
   const displayName = slugToDisplayName(personName);
 
+  // Memoized grid of calendar cells (empty padding + real days) for the month.
   const calendarDays = useMemo(() => {
     const emptyDays: { key: string; empty: true }[] = Array.from(
       { length: firstDay },
@@ -106,6 +119,7 @@ export default function RosterCalendarView({
           {/* Month Header */}
           <div className="flex items-center justify-between border-b border-border-subtle bg-surface-raised/50 px-6 py-4">
             <button
+              // Step to the previous month, wrapping from January to December.
               onClick={() =>
                 setCurrentMonth((m) => (m === 0 ? 11 : m - 1))
               }
@@ -122,6 +136,7 @@ export default function RosterCalendarView({
               </span>
             </div>
             <button
+              // Step to the next month, wrapping from December to January.
               onClick={() =>
                 setCurrentMonth((m) => (m === 11 ? 0 : m + 1))
               }
@@ -133,6 +148,7 @@ export default function RosterCalendarView({
 
           {/* Day of Week Headers */}
           <div className="grid grid-cols-7 border-b border-border-subtle">
+            {/* Render the weekday column headers */}
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
               (d, i) => (
                 <div
@@ -152,6 +168,7 @@ export default function RosterCalendarView({
           {/* Calendar Grid */}
           <div className="grid grid-cols-7">
             {calendarDays.map((cell) => {
+              // Leading padding cells before the first day of the month.
               if (cell.empty) {
                 return (
                   <div
@@ -176,7 +193,8 @@ export default function RosterCalendarView({
               return (
                 <button
                   key={cell.key}
-                  onClick={() => setPopupDay(day)}
+                   // Open the detail popup for the clicked day.
+                   onClick={() => setPopupDay(day)}
                   className={`group relative flex min-h-[90px] flex-col border-b border-r border-border-subtle/50 p-2.5 transition-all duration-150 ${
                     isToday
                       ? `border-2 ${a.border} bg-card`
@@ -295,11 +313,12 @@ export default function RosterCalendarView({
                         </div>
                       </div>
                       <button
-                        onClick={() =>
-                          router.push(
-                            `/accounts/${account}/roster/${personName}/evaluation/eval-${account}-cxl-${popupDay}-05aug2026-01`
-                          )
-                        }
+                         // Navigate to the full evaluation detail page for this day.
+                         onClick={() =>
+                           router.push(
+                             `/accounts/${account}/roster/${personName}/evaluation/eval-${account}-cxl-${popupDay}-05aug2026-01`
+                           )
+                         }
                         className={`flex-shrink-0 rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition ${a.hoverBg}`}
                       >
                         View

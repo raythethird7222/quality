@@ -1,7 +1,9 @@
+// Composable card primitives (Card, Header, Title, etc.) styled via data-slots.
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+// Root card container with size variants and slot-based styling hooks.
 function Card({
   className,
   size = "default",
@@ -20,6 +22,7 @@ function Card({
   )
 }
 
+// Card header region; auto-arranges title, description, and action slots.
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -33,6 +36,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+// Card title text with heading font and small-size handling.
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -46,6 +50,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+// Card description / subtitle text in muted foreground color.
 function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -56,6 +61,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+// Card action slot, aligned to the top-right of the header.
 function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -69,6 +75,7 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+// Card body content area with horizontal padding.
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -79,6 +86,7 @@ function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+// Card footer region with top border and muted background.
 function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -92,6 +100,7 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+// Public exports of all card primitive components.
 export {
   Card,
   CardHeader,

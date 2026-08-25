@@ -1,93 +1,86 @@
 "use client";
 
-import Link from "next/link";
+// Operator dashboard: profile, summary stats, and sample analytics charts.
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowRight,
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  BarChart3,
   CalendarDays,
+  ShieldCheck,
+  TrendingUp,
   Upload,
+  UsersRound,
   Zap,
 } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import { ACCOUNTS, getAccentColors } from "@/features/accounts/config";
+import { getAccentColors } from "@/features/accounts/config";
 import AvatarCropModal from "@/components/ui/avatar-crop-modal";
-import { useAccent } from "@/features/settings/useAccent";
-import type {
-  AccountKey,
-  AccountAssignment,
-  UserRole,
-  Accent,
-} from "@/types";
+import { useAccent, useAccentHex } from "@/features/settings/useAccent";
+import type { AuthUser } from "@/types";
+import type { DashboardOverview } from "@/lib/db/employees";
 
-type AccountLink = {
-  label: string;
-  description: string;
-  href: string;
-  icon: typeof Zap;
-  accent: string;
-  borderClass: string;
-  fillClass: string;
-  colorClass: string;
-  hoverClass: string;
-};
-
-const MANAGER_ROLES: UserRole[] = [
-  "account_manager",
-  "qa_supervisor",
-  "quality_coordinator",
+// Temporary, hard-coded analytics placeholders. Replace with real queries
+// (e.g. an `evaluations` table) once the data source exists.
+const TREND_DATA = [
+  { month: "Jan", score: 92 },
+  { month: "Feb", score: 94 },
+  { month: "Mar", score: 91 },
+  { month: "Apr", score: 95 },
+  { month: "May", score: 96 },
+  { month: "Jun", score: 94 },
 ];
 
-function getAccountsForUser(
-  accounts: AccountAssignment[],
-  role: UserRole,
-  accent: Accent
-): AccountLink[] {
-  const allAccounts: AccountAssignment[] = (Object.keys(
-    ACCOUNTS
-  ) as AccountKey[]).map((accountKey) => ({
-    account: ACCOUNTS[accountKey].label,
-    account_name: ACCOUNTS[accountKey].label,
-    role,
-    role_name: role,
-  }));
+// Hard-coded defect distribution placeholder data.
+const DEFECT_DATA = [
+  { defect: "Critical", count: 12 },
+  { defect: "Major", count: 28 },
+  { defect: "Minor", count: 45 },
+];
 
-  const list =
-    role === "admin" || role === "qa_supervisor" ? allAccounts : accounts;
-
-  if (list.length === 0) return [];
-
-  const useManagerDashboard = MANAGER_ROLES.includes(role);
-
-  return list.map((assignment) => {
-    const accountKey = assignment.account.toLowerCase() as AccountKey;
-    const config = ACCOUNTS[accountKey];
-    const colors = getAccentColors(accent);
-    return {
-      label: config.label,
-      description: `${config.label} Operations`,
-      href: useManagerDashboard
-        ? `/accounts/${accountKey}`
-        : `/accounts/${accountKey}/dashboard`,
-      icon: Zap,
-      accent,
-      borderClass: colors.border,
-      fillClass: colors.bgLight,
-      colorClass: colors.text,
-      hoverClass: colors.hoverBg,
-    };
-  });
-}
-
-export default function Dashboard() {
-  const { user, updateUser } = useAuth();
+// Main operator dashboard: profile card, stats, and analytics sections.
+export default function Dashboard({
+  user,
+  overview,
+}: {
+  user: AuthUser;
+  overview: DashboardOverview;
+}) {
+  const { updateUser } = useAuth();
+  // Hidden file input ref used to trigger the avatar file picker.
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Currently displayed avatar URL (overridden by the cropped upload).
   const [avatarImage, setAvatarImage] = useState<string | null>(
     user?.avatar_url ?? null
   );
+  // Source image for the crop modal, or null when the modal is closed.
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  // True while the cropped avatar is being uploaded to the server.
   const [avatarSaving, setAvatarSaving] = useState(false);
+  // Holds an error message from a failed avatar upload, if any.
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  // True after first client render, used to avoid SSR/CSR time mismatches.
   const [mounted, setMounted] = useState(false);
+  // Live clock value, ticking every second for the "last accessed" display.
   const [now, setNow] = useState<Date>(() => new Date());
 
   useEffect(() => {
@@ -96,9 +89,12 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, []);
 
+  // Full human-readable "last accessed" label used for the tooltip.
   const lastAccessedLabel = `Last accessed ${now.toLocaleDateString()} at ${now.toLocaleTimeString()}`;
 
+  // Display name falls back to "Operator" when no employee name is set.
   const name = user?.employee_name ?? "Operator";
+  // Derive up-to-two-letter initials from the display name.
   const initials = name
     .split(" ")
     .map((w) => w.charAt(0))
@@ -106,17 +102,17 @@ export default function Dashboard() {
     .slice(0, 2)
     .toUpperCase();
 
+  // Resolve the active theme accent, raw hex, and mapped color classes.
   const selectedAccent = useAccent();
+  const accentHex = useAccentHex();
   const a = getAccentColors(selectedAccent);
-  const accounts = user
-    ? getAccountsForUser(user.accounts ?? [], user.role, selectedAccent)
-    : [];
+  // Switch the welcome copy based on whether the user is a manager.
+  const useManagerDashboard = overview.isManager;
 
   const displayedAvatar = avatarImage ?? user?.avatar_url ?? null;
 
-  const handleFileChange = (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  // Reads a selected image file and opens the avatar crop modal.
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -125,6 +121,7 @@ export default function Dashboard() {
     event.target.value = "";
   };
 
+  // Uploads the cropped avatar and updates the user's profile.
   const handleAvatarSave = async (dataUrl: string) => {
     setAvatarSaving(true);
     setAvatarError(null);
@@ -151,6 +148,33 @@ export default function Dashboard() {
     }
   };
 
+  // Summary stat tiles: account/agent/QA counts pulled from the overview.
+  const stats = [
+    {
+      label: "Total Accounts",
+      value: overview.accounts.length,
+      icon: Zap,
+    },
+    {
+      label: "Total Agents",
+      value: overview.totalAgents,
+      icon: UsersRound,
+    },
+    {
+      label: "Total QAs",
+      value: overview.totalQAs,
+      icon: ShieldCheck,
+    },
+  ];
+
+  const trendConfig = {
+    score: { label: "QA Score", color: accentHex },
+  } satisfies ChartConfig;
+
+  const defectConfig = {
+    count: { label: "Count", color: accentHex },
+  } satisfies ChartConfig;
+
   return (
     <main className="min-h-full bg-surface-base px-6 py-5 text-text-primary md:px-9">
       <div className="mx-auto max-w-[1440px]">
@@ -160,8 +184,9 @@ export default function Dashboard() {
               Welcome Back, {name}
             </h1>
             <p className="mt-2 text-[13px] leading-5 text-text-secondary">
-              Select an operational managed tracking account system footprint
-              to initialize dashboard views.
+              {useManagerDashboard
+                ? "Monitor team performance across your managed accounts."
+                : "Track your assigned accounts and quality operations."}
             </p>
           </div>
         </header>
@@ -174,7 +199,8 @@ export default function Dashboard() {
             <div className="flex items-center gap-8">
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                 // Open the hidden file picker to choose a new avatar image.
+                 onClick={() => fileInputRef.current?.click()}
                 className={`group relative grid h-[118px] w-[118px] shrink-0 place-items-center rounded-full border-2 ${a.border} bg-surface-raised outline outline-2 outline-offset-[8px] outline-dashed outline-brand-gold/90`}
                 aria-label="Upload profile photo"
               >
@@ -206,15 +232,15 @@ export default function Dashboard() {
                   {name}
                 </p>
                 <p className={`mt-3 text-[15px] font-medium ${a.text}`}>
-                  QA ID: {user?.employee_id ?? "--"}
+                  QA ID: {user?.employee_code ?? "--"}
                 </p>
                 <p className={`mt-7 text-[15px] ${a.text}`}>
                   {user?.employee_email ?? "--"}
                 </p>
               </div>
             </div>
-              <div className={`flex items-center gap-5 ${a.border} md:min-w-[330px] md:border-l-2 md:py-7 md:pl-8`}>
-                <span className={`grid h-[60px] w-[60px] place-items-center rounded-xl ${a.bg} text-white`}>
+            <div className={`flex items-center gap-5 ${a.border} md:min-w-[330px] md:border-l-2 md:py-7 md:pl-8`}>
+              <span className={`grid h-[60px] w-[60px] place-items-center rounded-xl ${a.bg} text-white`}>
                 <CalendarDays
                   className="h-9 w-9 stroke-[2.5]"
                   aria-hidden="true"
@@ -234,30 +260,191 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="mt-7" aria-labelledby="accounts-heading">
-          <h2
-            id="accounts-heading"
-            className={`border-l-[7px] ${a.border} pl-2 text-[26px] font-semibold leading-8 text-text-primary`}
-          >
-            Allocated Dynamic Control Accounts
-          </h2>
-          {accounts.length === 0 ? (
-            <div className="mt-5 rounded-2xl border border-dashed border-border-default bg-card px-6 py-12 text-center shadow-sm">
-              <p className="text-[15px] font-semibold text-text-primary">
-                No accounts allocated
+        <section className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {/* Render one summary stat tile per entry */}
+          {stats.map((stat) => (
+            <div
+              key={stat.label}
+              className="relative overflow-hidden rounded-2xl border border-border-default bg-card px-5 py-4 shadow-sm"
+            >
+              <p className="text-[13px] text-text-secondary">{stat.label}</p>
+              <p className={`mt-2 text-[32px] font-bold ${a.text}`}>
+                {stat.value}
               </p>
-              <p className="mt-1 text-[13px] text-text-secondary">
-                Managed tracking account footprints will appear here once
-                assigned.
-              </p>
+              <stat.icon
+                className={`absolute bottom-4 right-5 h-9 w-9 ${a.bgLight} ${a.text}`}
+                aria-hidden="true"
+              />
             </div>
-          ) : (
-            <div className="mt-5 grid grid-cols-1 gap-7 sm:grid-cols-2 xl:grid-cols-4">
-              {accounts.map((account) => (
-                <AccountCard key={account.label} account={account} />
-              ))}
-            </div>
-          )}
+          ))}
+        </section>
+
+        <section className="mt-7" aria-labelledby="analytics-heading">
+          <div className="flex items-center justify-between">
+            <h2
+              id="analytics-heading"
+              className={`border-l-[7px] ${a.border} pl-2 text-[26px] font-semibold leading-8 text-text-primary`}
+            >
+              Analytics
+            </h2>
+            <span className="rounded-full bg-surface-raised px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              Sample data
+            </span>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Card className="rounded-2xl border border-border-default bg-card shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg ${a.bgLight}`}
+                  >
+                    <TrendingUp size={16} className={a.text} />
+                  </span>
+                  <CardTitle className="text-sm font-semibold text-text-primary">
+                    QA Performance Trend
+                  </CardTitle>
+                </div>
+                <div className="rounded-lg bg-surface-raised px-3 py-1.5 text-right">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                    Avg
+                  </span>
+                  <span className={`block text-sm font-bold ${a.text}`}>
+                    94%
+                  </span>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer
+                  config={trendConfig}
+                  className="h-[220px] w-full"
+                >
+                  <AreaChart
+                    data={TREND_DATA}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="fillScore"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor={accentHex}
+                          stopOpacity={0.15}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor={accentHex}
+                          stopOpacity={0.01}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      vertical={false}
+                      stroke="#E8E7E5"
+                      strokeDasharray="4 3"
+                    />
+                    <XAxis
+                      dataKey="month"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      tick={{ fontSize: 11, fill: "#8E8F92" }}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={4}
+                      tick={{ fontSize: 10, fill: "#8E8F92" }}
+                      domain={["dataMin - 2", "dataMax + 2"]}
+                      tickFormatter={(v: number) => `${v}%`}
+                    />
+                    <ChartTooltip
+                      content={
+                        <ChartTooltipContent
+                          indicator="dot"
+                          formatter={(value) => [`${value}%`, "QA Score"]}
+                        />
+                      }
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="score"
+                      stroke={accentHex}
+                      strokeWidth={2.5}
+                      fill="url(#fillScore)"
+                      dot={{
+                        r: 4,
+                        fill: "white",
+                        stroke: accentHex,
+                        strokeWidth: 2,
+                      }}
+                      activeDot={{
+                        r: 6,
+                        fill: "white",
+                        stroke: accentHex,
+                        strokeWidth: 2,
+                      }}
+                    />
+                  </AreaChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border border-border-default bg-card shadow-sm">
+              <CardHeader className="flex flex-row items-center gap-2 pb-2">
+                <span
+                  className={`flex h-8 w-8 items-center justify-center rounded-lg ${a.bgLight}`}
+                >
+                  <BarChart3 size={16} className={a.text} />
+                </span>
+                <CardTitle className="text-sm font-semibold text-text-primary">
+                  Defect Distribution
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer
+                  config={defectConfig}
+                  className="h-[220px] w-full"
+                >
+                  <BarChart
+                    data={DEFECT_DATA}
+                    margin={{ top: 5, right: 10, left: -10, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      vertical={false}
+                      stroke="#E8E7E5"
+                      strokeDasharray="4 3"
+                    />
+                    <XAxis
+                      dataKey="defect"
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fontSize: 11, fill: "#8E8F92" }}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fontSize: 10, fill: "#8E8F92" }}
+                    />
+                    <ChartTooltip
+                      content={<ChartTooltipContent indicator="dot" />}
+                    />
+                    <Bar
+                      dataKey="count"
+                      fill={accentHex}
+                      radius={[4, 4, 0, 0]}
+                      barSize={36}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          </div>
         </section>
       </div>
 
@@ -275,34 +462,5 @@ export default function Dashboard() {
         />
       )}
     </main>
-  );
-}
-
-function AccountCard({ account }: { account: AccountLink }) {
-  return (
-    <Link
-      href={account.href}
-      aria-label={`Open ${account.label} dashboard`}
-      className={`group relative flex h-[205px] flex-col items-center rounded-2xl border bg-card px-7 pt-4 shadow-sm transition hover:-translate-y-1 hover:text-white hover:shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 ${account.borderClass} ${account.colorClass} ${account.hoverClass}`}
-    >
-      <account.icon
-        className="h-[54px] w-[54px] stroke-[2.4] transition group-hover:text-white"
-        aria-hidden="true"
-      />
-      <span
-        className={`mt-3 h-1 w-full rounded-full transition group-hover:bg-white ${account.fillClass}`}
-      />
-      <span className="mt-3 text-[44px] font-bold leading-none tracking-tight text-text-primary transition group-hover:text-white">
-        {account.label}
-      </span>
-      <span className="mt-1 text-[16px] text-text-secondary transition group-hover:text-white">
-        {account.description}
-      </span>
-      <span
-        className={`absolute bottom-3 right-4 grid h-7 w-7 place-items-center rounded-full text-white transition group-hover:scale-110 ${account.fillClass}`}
-      >
-        <ArrowRight className="h-4 w-4 stroke-[3]" />
-      </span>
-    </Link>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+// Account framework view: ops dashboard with metrics, performance, and rosters.
 import Link from "next/link";
 import { useState } from "react";
 import {
@@ -20,20 +21,47 @@ import { getAccentColors } from "@/features/accounts/config";
 import { useAccent } from "@/features/settings/useAccent";
 import type { AgentPerformance } from "@/types";
 
+// Props for the account framework dashboard view.
 type AccountFrameworkViewProps = {
   account: string;
   qaName: string;
+  people: AgentPerformance[];
+  totalEvaluations?: number;
+  dailyTeamQaScore?: string;
+  failedEvaluations?: number;
+  qaList: string[];
+  lobOptions: string[];
+  teamLeads: string[];
+  agentRows: {
+    name: string;
+    lob: string;
+    coach: string;
+    evaluator: string;
+    teamLead: string;
+    status: string;
+  }[];
 };
 
-const people: AgentPerformance[] = [];
-
+// Main account framework view: header, timeline, metrics, and roster panels.
 export default function AccountFrameworkView({
   account,
   qaName,
+  people,
+  totalEvaluations,
+  dailyTeamQaScore,
+  failedEvaluations,
+  qaList,
+  lobOptions,
+  teamLeads,
+  agentRows,
 }: AccountFrameworkViewProps) {
+  // Controls visibility of the timeline date picker popover.
   const [calendarOpen, setCalendarOpen] = useState(false);
+  // Controls visibility of the QA assignment modal.
   const [assignmentOpen, setAssignmentOpen] = useState(false);
+  // Normalize account name into a URL-safe slug for navigation links.
   const unit = account.toLowerCase();
+  // Resolve the active theme accent and its mapped color classes.
   const selectedAccent = useAccent();
   const a = getAccentColors(selectedAccent);
 
@@ -102,6 +130,7 @@ export default function AccountFrameworkView({
               <div className="relative">
                 <button
                   type="button"
+                  // Toggle the calendar popover open/closed.
                   onClick={() => setCalendarOpen((o) => !o)}
                   className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-card px-4 py-2 text-[13px] font-bold ${a.text} transition hover:shadow-sm`}
                 >
@@ -137,8 +166,9 @@ export default function AccountFrameworkView({
                       <div>Fr</div>
                       <div>Sa</div>
                     </div>
-                    <div className="grid grid-cols-7 gap-0.5 text-center text-[12px] text-text-primary">
-                      {Array.from({ length: 31 }, (_, i) => (
+                     <div className="grid grid-cols-7 gap-0.5 text-center text-[12px] text-text-primary">
+                       {/* Render a selectable day cell for each day of the month */}
+                       {Array.from({ length: 31 }, (_, i) => (
                         <span
                           key={i}
                           className="cursor-pointer rounded-lg px-1 py-1.5 transition hover:bg-surface-overlay"
@@ -173,19 +203,19 @@ export default function AccountFrameworkView({
               <MetricCard
                 icon={ClipboardList}
                 label="Total Evaluations"
-                value="--"
+                value={totalEvaluations != null ? `${totalEvaluations}` : "--"}
                 accentVar="--app-accent"
               />
               <MetricCard
                 icon={Trophy}
                 label="Daily Team QA Score"
-                value="--"
+                value={dailyTeamQaScore ?? "--"}
                 accentVar="--app-accent"
               />
               <MetricCard
                 icon={ShieldAlert}
                 label="Failed Evaluations (< 90%)"
-                value="--"
+                value={failedEvaluations != null ? `${failedEvaluations}` : "--"}
                 accentVar="--app-accent"
               />
             </div>
@@ -222,12 +252,13 @@ export default function AccountFrameworkView({
                         No agents to display.
                       </td>
                     </tr>
-                  ) : (
-                    people.map((person) => (
+                    ) : (
+                      people.map((person) => (
                       <tr
                         key={person.name}
                         className="border-b border-border-subtle transition hover:bg-surface-overlay/50"
                       >
+                        {/* Render a performance row per agent */}
                         <td className="px-3 py-3 text-[13px] font-medium text-text-primary">
                           {person.name}
                         </td>
@@ -254,6 +285,7 @@ export default function AccountFrameworkView({
               description="Direct alignment mapping metrics (Read-Only access rights enforced)"
               account={unit}
               qaName={qaName}
+              people={people}
               showQa
             />
             <RosterPanel
@@ -261,6 +293,7 @@ export default function AccountFrameworkView({
               description="Select an agent below to build execution forms or modify history footprints"
               account={unit}
               qaName={qaName}
+              people={people}
             />
           </div>
         </section>
@@ -269,11 +302,16 @@ export default function AccountFrameworkView({
         open={assignmentOpen}
         onClose={() => setAssignmentOpen(false)}
         accent={selectedAccent}
+        qaList={qaList}
+        lobOptions={lobOptions}
+        teamLeads={teamLeads}
+        initialAgents={agentRows}
       />
     </div>
   );
 }
 
+// Compact metric tile used in the timeline banner.
 function MetricCard({
   icon: Icon,
   label,
@@ -308,17 +346,20 @@ function MetricCard({
   );
 }
 
+// Read-only roster panel linking to individual agent detail pages.
 function RosterPanel({
   title,
   description,
   account,
   qaName,
+  people,
   showQa = false,
 }: {
   title: string;
   description: string;
   account: string;
   qaName: string;
+  people: AgentPerformance[];
   showQa?: boolean;
 }) {
   const a = getAccentColors(useAccent());
@@ -337,8 +378,9 @@ function RosterPanel({
             No agents in roster.
           </p>
         ) : (
-          people.map((person) => {
-            const slug = person.name.toLowerCase().replace(/\s+/g, "-");
+           people.map((person) => {
+             // Build a URL slug from the agent name for the detail link.
+             const slug = person.name.toLowerCase().replace(/\s+/g, "-");
             return (
               <Link
                 key={person.name}

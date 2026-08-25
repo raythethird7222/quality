@@ -1,10 +1,12 @@
 "use client";
 
+// Modal form for creating a new agent with LOB, coach, evaluator, and team lead.
 import { useState } from "react";
 import { ChevronDown, Save, UserPlus, X } from "lucide-react";
 import { getAccentColors } from "@/features/accounts/config";
 import type { Accent } from "@/types";
 
+// Props for the Add Agent modal: open state, save handler, and select options.
 type AddAgentModalProps = {
   open: boolean;
   onClose: () => void;
@@ -20,17 +22,22 @@ type AddAgentModalProps = {
     status: string;
   }) => void;
   accent: Accent;
+  qaList: string[];
+  teamLeads?: string[];
 };
 
-const qaList: string[] = [];
-
+// Add Agent modal: collects agent details and emits a new agent on save.
 export default function AddAgentModal({
   open,
   onClose,
   onSave,
   accent,
+  qaList,
+  teamLeads = [],
 }: AddAgentModalProps) {
+  // Resolve accent color tokens for buttons and icons.
   const a = getAccentColors(accent);
+  // Form field state for the new agent being created.
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -41,6 +48,7 @@ export default function AddAgentModal({
   const [teamLead, setTeamLead] = useState("");
   const [status, setStatus] = useState("ACTIVE");
 
+  // Builds the agent payload, resets the form, and closes the modal.
   function handleSave() {
     onSave({
       id,
@@ -65,6 +73,7 @@ export default function AddAgentModal({
     onClose();
   }
 
+  // Render nothing when the modal is closed.
   if (!open) return null;
 
   return (
@@ -96,12 +105,12 @@ export default function AddAgentModal({
         {/* Form Body */}
         <div className="px-6 py-5">
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Employee ID">
+            <FormField label="Employee code">
               <input
                 type="text"
                 value={id}
                 onChange={(e) => setId(e.target.value)}
-                placeholder="Enter employee ID"
+                placeholder="Enter employee code"
                 className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
               />
             </FormField>
@@ -165,7 +174,7 @@ export default function AddAgentModal({
               <SelectField
                 value={teamLead}
                 onChange={setTeamLead}
-                options={[""]}
+                options={["", ...teamLeads]}
                 placeholder="Unassigned"
               />
             </FormField>
@@ -201,6 +210,7 @@ export default function AddAgentModal({
   );
 }
 
+// Layout helper that renders a labelled form field wrapper.
 function FormField({
   label,
   children,
@@ -218,6 +228,7 @@ function FormField({
   );
 }
 
+// Styled select input with a chevron and optional placeholder option.
 function SelectField({
   value,
   onChange,

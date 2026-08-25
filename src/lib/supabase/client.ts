@@ -1,5 +1,8 @@
+// Browser-side Supabase client factory used in client components.
+
 import { createClient } from "@supabase/supabase-js";
 
+// Creates the browser-side Supabase client using public env credentials.
 export function createBrowserClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

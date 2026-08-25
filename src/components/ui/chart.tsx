@@ -1,3 +1,4 @@
+// Recharts-based chart primitives: themed container, tooltip, and legend.
 import * as React from "react"
 import * as RechartsPrimitive from "recharts"
 import type { TooltipValueType } from "recharts"
@@ -8,8 +9,10 @@ import { cn } from "@/lib/utils"
 const THEMES = { light: "", dark: ".dark" } as const
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const
+// Helper alias for the name/identifier type of tooltip values.
 type TooltipNameType = number | string
 
+// Configuration mapping chart series keys to labels, icons, and colors.
 export type ChartConfig = Record<
   string,
   {
@@ -21,12 +24,14 @@ export type ChartConfig = Record<
   )
 >
 
+// Context shape exposing the active chart config to child components.
 type ChartContextProps = {
   config: ChartConfig
 }
 
 const ChartContext = React.createContext<ChartContextProps | null>(null)
 
+// Hook to read chart config; throws if used outside a ChartContainer.
 function useChart() {
   const context = React.useContext(ChartContext)
 
@@ -37,6 +42,7 @@ function useChart() {
   return context
 }
 
+// Responsive chart wrapper that provides config context and scoped styles.
 function ChartContainer({
   id,
   className,
@@ -79,6 +85,7 @@ function ChartContainer({
   )
 }
 
+// Injects per-series CSS color variables scoped to this chart's data-chart.
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
   const colorConfig = Object.entries(config).filter(
     ([, config]) => config.theme ?? config.color
@@ -112,8 +119,10 @@ ${colorConfig
   )
 }
 
+// Re-exported Recharts tooltip component.
 const ChartTooltip = RechartsPrimitive.Tooltip
 
+// Config-aware tooltip content with label, indicator, and value formatting.
 function ChartTooltipContent({
   active,
   payload,
@@ -268,8 +277,10 @@ function ChartTooltipContent({
   )
 }
 
+// Re-exported Recharts legend component.
 const ChartLegend = RechartsPrimitive.Legend
 
+// Config-aware legend content rendering colored markers and labels.
 function ChartLegendContent({
   className,
   hideIcon = false,
@@ -325,6 +336,7 @@ function ChartLegendContent({
   )
 }
 
+// Resolves a payload entry's config by matching its key against ChartConfig.
 function getPayloadConfigFromPayload(
   config: ChartConfig,
   payload: unknown,
@@ -361,6 +373,7 @@ function getPayloadConfigFromPayload(
   return configLabelKey in config ? config[configLabelKey] : config[key]
 }
 
+// Public exports of the chart primitive components and helpers.
 export {
   ChartContainer,
   ChartTooltip,

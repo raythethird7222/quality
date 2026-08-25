@@ -1,10 +1,15 @@
+// Authentication helpers: cookie-based session reading, role normalization,
+// and building the application AuthUser from an employee's assignments.
+
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { AuthUser, AccountAssignment, AccountLabel, UserRole } from "@/types";
 import { getEmployeeAllAssignments, type EmployeeRecord } from "@/lib/db/employees";
 
+// Name of the cookie that stores the serialized auth user.
 const AUTH_COOKIE_NAME = "qa-rey-auth";
 
+// Account codes recognized by the application for assignment filtering.
 const KNOWN_ACCOUNT_CODES = [
   "JS",
   "DFT",
@@ -16,6 +21,7 @@ const KNOWN_ACCOUNT_CODES = [
   "FLEET",
 ];
 
+// Maps raw role name strings to the canonical UserRole values.
 const ROLE_MAP: Record<string, UserRole> = {
   agent: "agent",
   qa: "qa",
@@ -27,6 +33,7 @@ const ROLE_MAP: Record<string, UserRole> = {
   "team lead": "team_lead",
 };
 
+// Normalizes a free-text role name into a canonical UserRole (defaults to "qa").
 export function normalizeRole(roleName: string): UserRole {
   return ROLE_MAP[roleName.trim().toLowerCase()] ?? "qa";
 }
@@ -70,9 +77,10 @@ export async function buildAuthUserFromEmployee(
   }));
 
   return {
+    employee_id: employee.id,
     employee_name: employee.employee_name ?? "",
     employee_email: employee.employee_email ?? "",
-    employee_id: employee.employee_id ?? "",
+    employee_code: employee.employee_code ?? "",
     account: primary.account_code.toUpperCase() as AccountLabel,
     account_name: primary.account_name,
     role: normalizeRole(primary.role_name),
@@ -82,6 +90,7 @@ export async function buildAuthUserFromEmployee(
   };
 }
 
+// Reads and validates the current auth user from the session cookie.
 export async function getAuthUser(): Promise<AuthUser | null> {
   const cookieStore = await cookies();
   const raw = cookieStore.get(AUTH_COOKIE_NAME)?.value;
@@ -92,7 +101,7 @@ export async function getAuthUser(): Promise<AuthUser | null> {
     if (
       parsed.employee_name &&
       parsed.employee_email &&
-      parsed.employee_id &&
+      parsed.employee_code &&
       parsed.account &&
       parsed.role
     ) {
@@ -105,6 +114,7 @@ export async function getAuthUser(): Promise<AuthUser | null> {
   return null;
 }
 
+// Redirects to /login when no session user exists; otherwise returns the user.
 export async function requireAuth(): Promise<AuthUser> {
   const user = await getAuthUser();
   if (!user) {
@@ -113,13 +123,14 @@ export async function requireAuth(): Promise<AuthUser> {
   return user;
 }
 
+// Parses and validates a raw auth cookie string into an AuthUser, if well-formed.
 export function parseAuthCookieValue(raw: string): AuthUser | null {
   try {
     const parsed = JSON.parse(decodeURIComponent(raw));
     if (
       parsed.employee_name &&
       parsed.employee_email &&
-      parsed.employee_id &&
+      parsed.employee_code &&
       parsed.account &&
       parsed.role
     ) {

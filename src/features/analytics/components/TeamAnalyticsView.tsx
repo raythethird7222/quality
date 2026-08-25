@@ -1,5 +1,6 @@
 "use client";
 
+// Team analytics view: trend, volume, defect, and ranking charts for an account.
 import { useState } from "react";
 import {
   BarChart3,
@@ -38,22 +39,23 @@ import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
 import { useAccent, useAccentHex } from "@/features/settings/useAccent";
 
+// Props for the team analytics view.
 type TeamAnalyticsViewProps = {
   account: string;
   qaName: string;
+  trendData?: { date: string; value: number }[];
+  pieData?: { name: string; value: number; fill: string }[];
+  barData?: { defect: string; count: number }[];
+  rankingData?: {
+    rank: number;
+    name: string;
+    score: string;
+    evaluations: number;
+    trend: number[];
+  }[];
 };
 
-const trendData: { date: string; value: number }[] = [];
-const pieData: { name: string; value: number; fill: string }[] = [];
-const barData: { defect: string; count: number }[] = [];
-const rankingData: {
-  rank: number;
-  name: string;
-  score: string;
-  evaluations: number;
-  trend: number[];
-}[] = [];
-
+// Selectable trend window options for the analytics filter toolbar.
 const timeframes = [
   "Daily",
   "Weekly",
@@ -62,12 +64,14 @@ const timeframes = [
   "Yearly",
 ] as const;
 
+// Renders a medal/rank badge for the performance ranking table.
 function RankBadge({ rank, color }: { rank: number; color: string }) {
   const badges: Record<number, string> = {
     1: "\u{1F947}",
     2: "\u{1F948}",
     3: "\u{1F949}",
   };
+  // Top three ranks get a medal emoji; others get a numbered circle.
   if (rank <= 3) {
     return (
       <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-surface-elevated text-sm">
@@ -85,27 +89,39 @@ function RankBadge({ rank, color }: { rank: number; color: string }) {
   );
 }
 
+// Main team analytics view: header, filter toolbar, and chart/ranking sections.
 export default function TeamAnalyticsView({
   account,
   qaName,
+  trendData = [],
+  pieData = [],
+  barData = [],
+  rankingData = [],
 }: TeamAnalyticsViewProps) {
+  // Controls visibility of the calendar date picker popover.
   const [calendarOpen, setCalendarOpen] = useState(false);
+  // Tracks the currently selected trend window (Daily/Weekly/...).
   const [activeTimeframe, setActiveTimeframe] = useState<string>("Daily");
+  // Normalize account name into a URL-safe slug for the back link.
   const unit = account.toLowerCase();
+  // Resolve the active theme accent, its classes, and raw hex value.
   const selectedAccent = useAccent();
   const a = getAccentColors(selectedAccent);
   const accentHex = useAccentHex();
 
+  // Chart metadata: series labels and colors for the trend/area chart.
   const trendChartConfig = {
     value: { label: "QA Score", color: accentHex },
   } satisfies ChartConfig;
 
+  // Chart metadata for the volume allocation pie chart slices.
   const pieChartConfig = {
     "pie-main": { label: "MAIN", color: accentHex },
     "pie-support": { label: "SUPPORT", color: "#6B7280" },
     "pie-escalations": { label: "ESCALATIONS", color: "#EF4444" },
   } satisfies ChartConfig;
 
+  // Chart metadata for the structural defect bar chart.
   const barChartConfig = {
     count: { label: "Defects", color: accentHex },
   } satisfies ChartConfig;
@@ -159,6 +175,7 @@ export default function TeamAnalyticsView({
             <div className="h-6 w-px shrink-0 bg-border-default" />
 
             <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border-default bg-surface-raised p-0.5">
+              {/* Render a toggle button per timeframe; selects active window */}
               {timeframes.map((tf) => (
                 <button
                   key={tf}
@@ -183,6 +200,7 @@ export default function TeamAnalyticsView({
               </button>
               <div className="relative">
                 <button
+                  // Toggle the calendar date picker popover open/closed.
                   onClick={() => setCalendarOpen(!calendarOpen)}
                   className={`flex items-center gap-1.5 rounded-md border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition hover:bg-surface-elevated`}
                 >
@@ -216,6 +234,7 @@ export default function TeamAnalyticsView({
                       )}
                     </div>
                     <div className="grid grid-cols-7 gap-0.5 text-center text-xs">
+                      {/* Render a clickable day cell for each day of the month */}
                       {Array.from({ length: 31 }).map((_, i) => (
                         <button
                           key={i}
@@ -259,11 +278,17 @@ export default function TeamAnalyticsView({
                 <span className="block text-[10px] font-semibold uppercase tracking-wider text-text-muted">
                   Avg
                 </span>
-                <span
-                  className={`block text-sm font-bold ${a.text}`}
-                >
-                  {trendData.length > 0 ? "96.6%" : "--"}
-                </span>
+                 <span
+                   className={`block text-sm font-bold ${a.text}`}
+                 >
+                   {trendData.length > 0
+                      ? `${(
+                          // Average the trend values for the header summary.
+                          trendData.reduce((s, d) => s + d.value, 0) /
+                          trendData.length
+                        ).toFixed(1)}%`
+                     : "--"}
+                 </span>
               </div>
             </CardHeader>
             <CardContent>
@@ -402,17 +427,19 @@ export default function TeamAnalyticsView({
                       strokeWidth={2}
                       stroke="#F8F8F6"
                     >
-                      {pieData.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={entry.fill}
-                        />
-                      ))}
+                       {/* Color each pie slice with its configured fill */}
+                       {pieData.map((entry, index) => (
+                         <Cell
+                           key={`cell-${index}`}
+                           fill={entry.fill}
+                         />
+                       ))}
                     </Pie>
                     <Legend
                       content={({ payload }) => (
                         <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                          {payload?.map((entry) => (
+                           {/* Render a colored swatch + label per legend entry */}
+                           {payload?.map((entry) => (
                             <div
                               key={entry.value}
                               className="flex items-center gap-1.5 text-[11px] text-text-secondary"
@@ -546,12 +573,13 @@ export default function TeamAnalyticsView({
                         </p>
                       </td>
                     </tr>
-                  ) : (
-                    rankingData.map((row) => (
+                    ) : (
+                      rankingData.map((row) => (
                       <tr
                         key={row.rank}
                         className="border-b border-border-default transition hover:bg-surface-raised"
                       >
+                        {/* Render one table row per ranked agent */}
                         <td className="p-3">
                           <RankBadge rank={row.rank} color={accentHex} />
                         </td>
@@ -576,10 +604,10 @@ export default function TeamAnalyticsView({
                             className="h-8 w-full"
                           >
                             <LineChart
-                              data={row.trend.map((v, i) => ({
-                                i,
-                                v,
-                              }))}
+                               data={row.trend.map((v, i) => ({
+                                 i,
+                                 v,
+                               }))}
                               margin={{
                                 top: 2,
                                 right: 2,
@@ -587,6 +615,7 @@ export default function TeamAnalyticsView({
                                 bottom: 2,
                               }}
                             >
+                              {/* Convert the trend number array into chart points. */}
                               <Line
                                 type="monotone"
                                 dataKey="v"
