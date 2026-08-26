@@ -121,7 +121,7 @@ export default function ManagerDashboard({
                     </p>
                     <div className="mt-auto pt-3">
                       <Link
-                        href={`/accounts/${unit}/dashboard`}
+                        href={`/accounts/${unit}/dashboard?qaId=${member.employeeId}`}
                         className={`flex items-center justify-center gap-2 rounded-lg border ${m.border} bg-card px-3 py-2.5 text-[13px] font-semibold ${m.text} transition ${m.hoverBg}`}
                       >
                         <LineChart className="h-4 w-4" />

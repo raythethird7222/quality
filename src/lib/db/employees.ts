@@ -24,7 +24,11 @@ const DASHBOARD_MANAGER_ROLES: UserRole[] = [
   "quality_coordinator",
 ];
 
-// Raw row shapes for the accounts, roles, and assignments tables.
+function isManagerRole(role: UserRole | undefined): boolean {
+  return role != null && DASHBOARD_MANAGER_ROLES.includes(role);
+}
+
+// Returns true when the given role is a manager-level role.
 type AccountRow = { account_id: number; account_code: string; account_name: string };
 type RoleRow = { role_id: number; role_name: string };
 type AssignmentRow = {
@@ -586,19 +590,28 @@ async function getEnrichedEmployeesByAccount(
 
 // Returns the (deduplicated) agents for an account as performance rows.
 // Uses agent_assignments table to get only assigned agents.
+// Managers see all agents; everyone else sees only agents they coach or evaluate.
 export async function getAccountAgents(
-  accountCode: string
+  accountCode: string,
+  user?: AuthUser
 ): Promise<AgentPerformance[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
   const supabase = createServerClient();
 
-  // Fetch all agent_assignments for this account.
-  const { data: assignments, error } = await supabase
+  let query = supabase
     .from("agent_assignments")
     .select("agent_employee_id")
     .eq("account_id", accountId);
+
+  if (user && !isManagerRole(user.role)) {
+    query = query.or(
+      `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
+    );
+  }
+
+  const { data: assignments, error } = await query;
 
   if (error || !assignments || assignments.length === 0) return [];
 
@@ -717,21 +730,30 @@ export type AgentAssignmentRow = {
 };
 
 // Builds the assignment roster rows for an account using the agent_assignments table.
+// Managers see all assignments; everyone else sees only agents they coach or evaluate.
 export async function getAccountAssignmentRows(
-  accountCode: string
+  accountCode: string,
+  user?: AuthUser
 ): Promise<AgentAssignmentRow[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
   const supabase = createServerClient();
 
-  // Fetch all agent_assignments for this account.
-  const { data: assignments, error } = await supabase
+  let query = supabase
     .from("agent_assignments")
     .select(
       "assignment_id, agent_employee_id, lob_id, team_lead_employee_id, qa_coach_employee_id, qa_evaluator_employee_id"
     )
     .eq("account_id", accountId);
+
+  if (user && !isManagerRole(user.role)) {
+    query = query.or(
+      `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
+    );
+  }
+
+  const { data: assignments, error } = await query;
 
   if (error || !assignments || assignments.length === 0) return [];
 
@@ -781,17 +803,58 @@ export type AccountTeamOverview = {
 };
 
 // Returns agent/QA counts and the QA member list for an account.
+// Non-managers see only agents they coach, evaluate, or lead.
 export async function getAccountTeamOverview(
-  accountCode: string
+  accountCode: string,
+  user?: AuthUser
 ): Promise<AccountTeamOverview> {
   const enriched = await getEnrichedEmployeesByAccount(accountCode);
 
-  const agents = enriched.filter(
+  let agents = enriched.filter(
     (e) => classifyRole(e.role_name) === "agent"
   );
+
+  if (user && !isManagerRole(user.role)) {
+    const accountId = await getAccountIdByCode(accountCode);
+    if (accountId) {
+      const supabase = createServerClient();
+      const { data: scopedAssignments } = await supabase
+        .from("agent_assignments")
+        .select("agent_employee_id")
+        .eq("account_id", accountId)
+        .or(
+          `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
+        );
+
+      const scopedIds = new Set(
+        (scopedAssignments ?? [])
+          .map((a) => a.agent_employee_id)
+          .filter((id): id is number => id != null)
+      );
+
+      agents = agents.filter((e) => scopedIds.has(e.id));
+    }
+  }
+
   const qaMembers = enriched.filter(
     (e) => classifyRole(e.role_name) === "qa"
   );
+
+  const supabase = createServerClient();
+  const { data: assignments } = await supabase
+    .from("agent_assignments")
+    .select(
+      "agent_employee_id, qa_coach_employee_id, qa_evaluator_employee_id, team_lead_employee_id"
+    )
+    .eq("account_id", (await getAccountIdByCode(accountCode)) ?? 0);
+
+  const memberAgentCount = new Map<number, number>();
+  for (const a of assignments ?? []) {
+    const coachId = a.qa_coach_employee_id;
+    if (coachId != null) {
+      memberAgentCount.set(coachId, (memberAgentCount.get(coachId) ?? 0) + 1);
+    }
+  }
 
   const members: TeamMember[] = qaMembers.map((m) => {
     const name = m.employee_name ?? "—";
@@ -801,7 +864,7 @@ export async function getAccountTeamOverview(
       .join("")
       .slice(0, 2)
       .toUpperCase();
-    return { name, initial, agents: agents.length };
+    return { name, initial, agents: memberAgentCount.get(m.id) ?? 0, employeeId: m.id };
   });
 
   return {
@@ -846,11 +909,30 @@ export const getDashboardOverview = unstable_cache(
 
     const accounts = await Promise.all(
       accountCodes.map(async (code) => {
-        const overview = await getAccountTeamOverview(code);
+        const overview = await getAccountTeamOverview(code, user);
+        const accountId = await getAccountIdByCode(code);
+
+        let agentCount = overview.agents;
+        if (!isManager && accountId) {
+          const supabase = createServerClient();
+          const { data: coachAssignments } = await supabase
+            .from("agent_assignments")
+            .select("agent_employee_id")
+            .eq("account_id", accountId)
+            .eq("qa_coach_employee_id", user.employee_id);
+
+          const uniqueAgentIds = new Set(
+            (coachAssignments ?? [])
+              .map((a) => a.agent_employee_id)
+              .filter((id): id is number => id != null)
+          );
+          agentCount = uniqueAgentIds.size;
+        }
+
         return {
           account: code.toUpperCase() as AccountLabel,
           accountKey: code.toLowerCase() as AccountKey,
-          agents: overview.agents,
+          agents: agentCount,
           qaCount: overview.qaCount,
         };
       })

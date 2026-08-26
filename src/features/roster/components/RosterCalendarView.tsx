@@ -6,16 +6,16 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
+import { useAccent } from "@/features/settings/useAccent";
 import { slugToDisplayName } from "@/lib/utils";
 import { createBrowserClient } from "@/lib/supabase/client";
-import type { Accent, EvaluationDay } from "@/types";
+import type { EvaluationDay } from "@/types";
 import type { AgentEvaluation } from "@/lib/db/quality";
 
 // Props for the roster calendar view.
 type RosterCalendarViewProps = {
   account: string;
   personName: string;
-  accent: Accent;
   evaluations: AgentEvaluation[];
 };
 
@@ -39,7 +39,6 @@ const months = [
 export default function RosterCalendarView({
   account,
   personName,
-  accent,
   evaluations: initialEvaluations,
 }: RosterCalendarViewProps) {
   // Index of the displayed month (0=Jan ... 11=Dec); starts on current month.
@@ -52,7 +51,8 @@ export default function RosterCalendarView({
   const [evaluations, setEvaluations] =
     useState<AgentEvaluation[]>(initialEvaluations);
   const router = useRouter();
-  const a = getAccentColors(accent);
+  const selectedAccent = useAccent();
+  const a = getAccentColors(selectedAccent);
 
   // Supabase Realtime: listen for INSERT/UPDATE/DELETE on rm_qa_evaluations
   // so the calendar updates instantly when new evaluations come in.
@@ -158,7 +158,7 @@ export default function RosterCalendarView({
             { label: account.toUpperCase(), href: `/accounts/${account}` },
             { label: displayName },
           ]}
-          accent={accent}
+          accent={selectedAccent}
         />
 
         {/* Header */}
@@ -181,14 +181,14 @@ export default function RosterCalendarView({
         </div>
 
         {/* Calendar Card */}
-        <div className="overflow-hidden rounded-2xl border border-border-default bg-card shadow-sm">
+        <div className={`overflow-hidden rounded-2xl border ${a.border} bg-card shadow-sm`}>
           {/* Month Header */}
-          <div className="flex items-center justify-between border-b border-border-subtle bg-surface-raised/50 px-6 py-4">
+          <div className={`flex items-center justify-between border-b border-border-subtle bg-surface-raised/50 px-6 py-4`}>
             <button
               onClick={() =>
                 setCurrentMonth((m) => (m === 0 ? 11 : m - 1))
               }
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-default bg-card text-text-muted transition hover:border-border-accent hover:text-text-primary hover:shadow-sm"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg border ${a.border} bg-card text-text-muted transition ${a.hoverBg} hover:text-text-primary hover:shadow-sm`}
             >
               <ChevronLeft size={16} />
             </button>
@@ -196,7 +196,7 @@ export default function RosterCalendarView({
               <h2 className="text-lg font-bold tracking-tight text-text-primary">
                 {months[currentMonth]}
               </h2>
-              <span className="rounded-md bg-surface-overlay px-2 py-0.5 text-[12px] font-semibold text-text-muted">
+              <span className={`rounded-md ${a.bgLight} px-2 py-0.5 text-[12px] font-semibold ${a.text}`}>
                 {currentYear}
               </span>
             </div>
@@ -204,7 +204,7 @@ export default function RosterCalendarView({
               onClick={() =>
                 setCurrentMonth((m) => (m === 11 ? 0 : m + 1))
               }
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-default bg-card text-text-muted transition hover:border-border-accent hover:text-text-primary hover:shadow-sm"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg border ${a.border} bg-card text-text-muted transition ${a.hoverBg} hover:text-text-primary hover:shadow-sm`}
             >
               <ChevronRight size={16} />
             </button>
@@ -263,7 +263,7 @@ export default function RosterCalendarView({
                       ? `border-2 ${a.border} bg-card`
                       : hasEvaluation
                         ? "bg-card hover:shadow-md hover:z-10"
-                        : "bg-card hover:bg-surface-overlay/50"
+                        : `bg-card ${a.hoverBg}`
                   }`}
                 >
                   <div className="flex items-start justify-between">
@@ -335,12 +335,12 @@ export default function RosterCalendarView({
         >
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
           <div
-            className="relative w-full max-w-[400px] rounded-2xl border border-border-default bg-card shadow-2xl"
+            className={`relative w-full max-w-[400px] rounded-2xl border ${a.border} bg-card shadow-2xl`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={() => setPopupDay(null)}
-              className="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border border-border-default bg-card text-text-muted transition hover:bg-surface-overlay hover:text-text-primary"
+              className={`absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border ${a.border} bg-card text-text-muted transition ${a.hoverBg} hover:text-text-primary`}
             >
               <span className="text-[16px] leading-none">&times;</span>
             </button>
@@ -362,7 +362,7 @@ export default function RosterCalendarView({
                       (ev, i) => (
                         <div
                           key={i}
-                          className="rounded-lg border border-border-default bg-surface-raised p-3"
+                          className={`rounded-lg border ${a.border} bg-surface-raised p-3`}
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex min-w-0 items-center gap-3">

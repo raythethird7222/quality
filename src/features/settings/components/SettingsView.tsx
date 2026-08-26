@@ -42,14 +42,10 @@ const TABS: { key: TabKey; label: string; icon: typeof UserIcon }[] = [
   { key: "account", label: "Account", icon: ShieldCheck },
 ];
 
-// Fallback avatar shown when a user has no uploaded photo.
-const avatarSvg =
-  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%23E8E7E5'><rect width='100' height='100'/><text x='50%' y='55%' font-family='sans-serif' font-size='32' font-weight='bold' fill='%232F6798' dominant-baseline='middle' text-anchor='middle'>QA</text></svg>";
-
 // Top-level settings view: renders the breadcrumb, header, tab nav, and the
 // active panel based on the selected section.
 export default function SettingsView() {
-  const { user, logout, updateUser } = useAuth();
+  const { user, requestLogout } = useAuth();
   const router = useRouter();
   // Tracks the currently selected settings section.
   const [tab, setTab] = useState<TabKey>("appearance");
@@ -61,8 +57,10 @@ export default function SettingsView() {
           Please sign in to view settings.
         </p>
       </div>
-    );
-  }
+  );
+}
+
+// Appearance panel: manages theme mode, full theme designs, and accent color,
 
   // Display name used by the profile panel, falling back to "Operator".
   const name = user.employee_name ?? "Operator";
@@ -112,10 +110,7 @@ export default function SettingsView() {
             {tab === "notifications" && <NotificationsPanel />}
             {tab === "account" && (
               <AccountPanel
-                onLogout={() => {
-                  logout();
-                  router.push("/login");
-                }}
+                onLogout={() => requestLogout()}
               />
             )}
           </section>
@@ -124,8 +119,6 @@ export default function SettingsView() {
     </div>
   );
 }
-
-// Appearance panel: manages theme mode, full theme designs, and accent color,
 // persisting selections to localStorage and the document attributes.
 function AppearancePanel() {
   const { theme, setTheme, resolvedTheme } = useTheme();

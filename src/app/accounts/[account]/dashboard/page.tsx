@@ -4,21 +4,22 @@ import { requireAuth } from "@/lib/auth";
 import {
   getAccountAgents,
   getAccountAssignmentRows,
-  getAccountLobNames,
   getAccountQaName,
-  getAccountQAs,
-  getAccountTeamLeads,
 } from "@/lib/db/employees";
 import { getAccountEvaluationAnalytics } from "@/lib/db/quality";
+import { createServerClient } from "@/lib/supabase/server";
 import AccountFrameworkView from "@/features/dashboard/components/AccountFrameworkView";
 
 export default async function AccountDashboardPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ account: string }>;
+  searchParams: Promise<{ qaId?: string }>;
 }) {
   // Resolve the account identifier from the route parameters.
   const { account } = await params;
+  const { qaId } = await searchParams;
 
   // Render a "not found" message when the account is not configured.
   if (!isValidAccount(account)) {
@@ -36,29 +37,50 @@ export default async function AccountDashboardPage({
     );
   }
 
-  // Authenticate the current user.
   const user = await requireAuth();
   // Look up the account configuration (label, accent, etc.).
   const config = getAccount(account);
+
+  // If a specific QA is requested via query param, look up that QA's employee info.
+  let targetUser = user;
+  if (qaId) {
+    const supabase = createServerClient();
+    const { data: targetEmployee } = await supabase
+      .from("employees")
+      .select("id, employee_name")
+      .eq("id", Number(qaId))
+      .maybeSingle();
+
+    if (targetEmployee) {
+      targetUser = {
+        ...user,
+        employee_id: targetEmployee.id,
+        employee_name: targetEmployee.employee_name ?? user.employee_name,
+      };
+    }
+  }
 
   // Fetch all dashboard data in parallel for efficiency.
   const [
     agents,
     analytics,
-    qaList,
-    lobOptions,
-    teamLeads,
     agentRows,
     qaName,
   ] = await Promise.all([
-    getAccountAgents(account),
-    getAccountEvaluationAnalytics(account, user),
-    getAccountQAs(account),
-    getAccountLobNames(account),
-    getAccountTeamLeads(account),
-    getAccountAssignmentRows(account),
-    getAccountQaName(account, user.employee_name),
+    getAccountAgents(account, targetUser),
+    getAccountEvaluationAnalytics(account, targetUser),
+    getAccountAssignmentRows(account, targetUser),
+    getAccountQaName(account, targetUser.employee_name),
   ]);
+
+  // If critical data is missing (shouldn't happen in normal flow), show a minimal loading state.
+  if (!analytics || analytics.totalEvaluations === undefined) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <p className="text-[14px] text-text-secondary">Loading dashboard...</p>
+      </div>
+    );
+  }
 
   // Overlay real evaluation scores/opportunities onto the full agent roster.
   // Build a lookup of agent performance keyed by agent name.
@@ -86,9 +108,6 @@ export default async function AccountDashboardPage({
         analytics.avgScore != null ? `${analytics.avgScore.toFixed(1)}%` : "--"
       }
       failedEvaluations={analytics.failedEvaluations}
-      qaList={qaList}
-      lobOptions={lobOptions}
-      teamLeads={teamLeads}
       agentRows={agentRows}
     />
   );

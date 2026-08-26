@@ -1,6 +1,6 @@
 // Server page rendering the roster calendar for a single person in an account.
 import { notFound } from "next/navigation";
-import { getAccount, isValidAccount } from "@/features/accounts/config";
+import { isValidAccount } from "@/features/accounts/config";
 import { requireAuth } from "@/lib/auth";
 import { getAgentEvaluations } from "@/lib/db/quality";
 import RosterCalendarView from "@/features/roster/components/RosterCalendarView";
@@ -20,8 +20,6 @@ export default async function RosterPage({
 
   // Authenticate the current user.
   await requireAuth();
-  // Look up the account configuration (accent, label, etc.).
-  const config = getAccount(account);
 
   // Fetch real evaluation data for this agent.
   const evaluations = await getAgentEvaluations(account, slug);
@@ -31,7 +29,6 @@ export default async function RosterPage({
     <RosterCalendarView
       account={account}
       personName={slug}
-      accent={config.accent}
       evaluations={evaluations}
     />
   );

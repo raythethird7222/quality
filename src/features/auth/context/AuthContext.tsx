@@ -11,6 +11,7 @@ import {
 import { usePathname } from "next/navigation";
 import type { AuthUser } from "@/types";
 import { createBrowserClient } from "@/lib/supabase/client";
+import LogoutConfirmModal from "@/components/ui/logout-confirm-modal";
 
 // Shape of the authentication context value exposed to consumers.
 type AuthContextType = {
@@ -21,6 +22,7 @@ type AuthContextType = {
     password: string
   ) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
+  requestLogout: () => void;
   updateUser: (patch: Partial<AuthUser>) => void;
 };
 
@@ -47,6 +49,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   // Loading is true until the session check has hydrated.
   const loading = !hydrated;
+  // Global logout confirmation modal state.
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   useEffect(() => {
     if (isPublicPath(pathname)) {
@@ -130,12 +134,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Clears the local session and signs the user out of Supabase.
   const logout = useCallback(() => {
-    setUser(null);
+    setLogoutOpen(false);
+    const supabase = createBrowserClient();
     void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
-      const supabase = createBrowserClient();
       void supabase.auth.signOut().catch(() => {});
-      window.location.href = "/login"; // eslint-disable-line @next/next/no-location-assign-relative-destination -- Full page reload for auth state
+      window.location.replace("/login");
     });
+  }, []);
+
+  // Opens the global logout confirmation modal.
+  const requestLogout = useCallback(() => {
+    setLogoutOpen(true);
   }, []);
 
   // Merges a partial patch into the current authenticated user.
@@ -144,8 +153,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, requestLogout, updateUser }}>
       {children}
+      <LogoutConfirmModal
+        open={logoutOpen}
+        onConfirm={logout}
+        onCancel={() => setLogoutOpen(false)}
+      />
     </AuthContext.Provider>
   );
 }

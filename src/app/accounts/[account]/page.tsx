@@ -37,7 +37,7 @@ export default async function AccountPage({
   // Look up the account configuration (label, accent, etc.).
   const config = getAccount(account);
   // Load the team overview (agents, QA count, members) for the account.
-  const overview = await getAccountTeamOverview(account);
+  const overview = await getAccountTeamOverview(account, user);
 
   // Render the manager dashboard with the assembled account data.
   return (

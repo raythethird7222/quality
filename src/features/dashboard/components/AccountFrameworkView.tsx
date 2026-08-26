@@ -15,7 +15,6 @@ import {
   Trophy,
   UsersRound,
 } from "lucide-react";
-import AssignmentModal from "@/components/ui/assignment-modal";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import Pagination, { paginate } from "@/components/ui/pagination";
 import { getAccentColors } from "@/features/accounts/config";
@@ -30,9 +29,6 @@ type AccountFrameworkViewProps = {
   totalEvaluations?: number;
   dailyTeamQaScore?: string;
   failedEvaluations?: number;
-  qaList: string[];
-  lobOptions: string[];
-  teamLeads: string[];
   agentRows: {
     name: string;
     lob: string;
@@ -83,15 +79,10 @@ export default function AccountFrameworkView({
   totalEvaluations: initialTotal,
   dailyTeamQaScore: initialScore,
   failedEvaluations: initialFailed,
-  qaList,
-  lobOptions,
-  teamLeads,
   agentRows,
 }: AccountFrameworkViewProps) {
   // Controls visibility of the timeline date picker popover.
   const [calendarOpen, setCalendarOpen] = useState(false);
-  // Controls visibility of the QA assignment modal.
-  const [assignmentOpen, setAssignmentOpen] = useState(false);
 
   // Date navigation state.
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -108,6 +99,22 @@ export default function AccountFrameworkView({
   // Performance table pagination state.
   const [perfPage, setPerfPage] = useState(1);
   const [perfPageSize, setPerfPageSize] = useState(10);
+
+  const evaluatorPeople = useMemo(
+    () =>
+      livePeople.filter((person) =>
+        agentRows.some((row) => row.name === person.name && row.evaluator === qaName),
+      ),
+    [livePeople, agentRows, qaName],
+  );
+
+  const coachPeople = useMemo(
+    () =>
+      livePeople.filter((person) =>
+        agentRows.some((row) => row.name === person.name && row.coach === qaName),
+      ),
+    [livePeople, agentRows, qaName],
+  );
 
   // Normalize account name into a URL-safe slug for navigation links.
   const unit = account.toLowerCase();
@@ -214,14 +221,13 @@ export default function AccountFrameworkView({
                 <BarChart3 className="h-4 w-4" />
                 View Team QA Analytics
               </Link>
-              <button
-                type="button"
-                onClick={() => setAssignmentOpen(true)}
+              <Link
+                href={`/accounts/${unit}/assignments`}
                 className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-card px-5 py-2.5 text-[13px] font-semibold ${a.text} transition ${a.hoverBg}`}
               >
                 <Settings className="h-4 w-4" />
                 QA Assignment
-              </button>
+              </Link>
             </div>
           </header>
 
@@ -251,8 +257,8 @@ export default function AccountFrameworkView({
                 </button>
 
                 {calendarOpen && (
-                  <div className="absolute left-1/2 z-20 mt-2 w-[260px] -translate-x-1/2 rounded-xl border border-border-default bg-card p-4 shadow-xl">
-                    <div className="mb-3 flex items-center justify-between text-sm font-semibold text-text-primary">
+                  <div className={`absolute left-1/2 z-20 mt-2 w-[260px] -translate-x-1/2 rounded-xl border ${a.border} bg-card p-4 shadow-xl`}>
+                    <div className={`mb-3 flex items-center justify-between text-sm font-semibold ${a.text}`}>
                       <button
                         type="button"
                         onClick={() => {
@@ -263,7 +269,7 @@ export default function AccountFrameworkView({
                             setCalMonth((m) => m - 1);
                           }
                         }}
-                        className="rounded p-1 transition hover:bg-surface-overlay"
+                        className={`rounded p-1 transition ${a.hoverBg}`}
                       >
                         <ChevronLeft className="h-4 w-4" />
                       </button>
@@ -278,7 +284,7 @@ export default function AccountFrameworkView({
                             setCalMonth((m) => m + 1);
                           }
                         }}
-                        className="rounded p-1 transition hover:bg-surface-overlay"
+                        className={`rounded p-1 transition ${a.hoverBg}`}
                       >
                         <ChevronRight className="h-4 w-4" />
                       </button>
@@ -311,7 +317,7 @@ export default function AccountFrameworkView({
                             className={`cursor-pointer rounded-lg px-1 py-1.5 transition ${
                               isSelected
                                 ? `${a.bg} text-app-accent-contrast font-semibold`
-                                : "hover:bg-surface-overlay"
+                                : `${a.hoverBg}`
                             }`}
                           >
                             {day}
@@ -433,30 +439,22 @@ export default function AccountFrameworkView({
               description="Direct alignment mapping metrics (Read-Only access rights enforced)"
               account={unit}
               qaName={qaName}
-              people={livePeople}
+              people={coachPeople}
               agentRows={agentRows}
               showQa
+              showEval={false}
             />
             <RosterPanel
               title="Evaluator Operational Allocations"
               description="Select an agent below to build execution forms or modify history footprints"
               account={unit}
               qaName={qaName}
-              people={livePeople}
+              people={evaluatorPeople}
               agentRows={agentRows}
             />
           </div>
         </section>
       </div>
-      <AssignmentModal
-        open={assignmentOpen}
-        onClose={() => setAssignmentOpen(false)}
-        accent={selectedAccent}
-        qaList={qaList}
-        lobOptions={lobOptions}
-        teamLeads={teamLeads}
-        initialAgents={agentRows}
-      />
     </div>
   );
 }
@@ -505,6 +503,7 @@ function RosterPanel({
   people,
   agentRows,
   showQa = false,
+  showEval = true,
 }: {
   title: string;
   description: string;
@@ -513,6 +512,7 @@ function RosterPanel({
   people: AgentPerformance[];
   agentRows: AccountFrameworkViewProps["agentRows"];
   showQa?: boolean;
+  showEval?: boolean;
 }) {
   const a = getAccentColors(useAccent());
   // Build a lookup of evaluator data keyed by agent name.
@@ -545,7 +545,7 @@ function RosterPanel({
               <Link
                 key={person.name}
                 href={`/accounts/${account}/roster/${slug}`}
-                className={`flex items-center gap-2 rounded-lg border ${a.border} ${a.bgLight} px-3 py-2.5 text-[12px] transition hover:shadow-sm ${a.text}`}
+                className={`flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-raised px-3 py-2.5 text-[12px] transition hover:border-current ${a.text}`}
               >
                 <span className="font-medium text-text-primary">
                   {person.name}
@@ -557,8 +557,8 @@ function RosterPanel({
                     QA: {qaName}
                   </span>
                 )}
-                {row?.evaluator && (
-                  <span className={`rounded-md ${a.bgLight} px-1.5 py-0.5 text-[10px] font-semibold ${a.text}`}>
+                {showEval && row?.evaluator && (
+                  <span className="rounded-md bg-surface-overlay px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
                     Eval: {row.evaluator}
                   </span>
                 )}

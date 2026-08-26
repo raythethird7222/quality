@@ -71,6 +71,7 @@ export type TeamMember = {
   name: string;
   initial: string;
   agents: number;
+  employeeId?: number;
 };
 
 export type AgentPerformance = {

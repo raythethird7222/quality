@@ -50,7 +50,7 @@ export default function Sidebar({
   onClose: () => void;
 }) {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, requestLogout } = useAuth();
 
   if (!user || pathname === "/login") return null;
 
@@ -208,7 +208,7 @@ export default function Sidebar({
             <button
               onClick={() => {
                 onClose();
-                logout();
+                requestLogout();
               }}
               aria-label="Logout"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--app-accent-contrast)] opacity-70 transition-colors hover:bg-white/10 hover:opacity-100"

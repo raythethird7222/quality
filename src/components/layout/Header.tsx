@@ -21,7 +21,7 @@ export default function Header({
 }: {
   onMenuClick?: () => void;
 }) {
-  const { user, logout } = useAuth();
+  const { user, loading, requestLogout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const accentHex = useAccentHex();
@@ -57,7 +57,21 @@ export default function Header({
     };
   }, [open]);
 
-  if (!mounted || !user || pathname === "/login") return null;
+  if (!mounted || pathname === "/login") return null;
+
+  // While auth is loading, render a skeleton placeholder that preserves layout height.
+  if (loading || !user) {
+    return (
+      <header className="border-b border-border bg-surface-base/80 backdrop-blur">
+        <nav className="navbar mx-auto flex max-w-[1440px] items-center justify-between px-6 py-3.5 md:px-10">
+          <div className="h-6 w-32 animate-pulse rounded bg-surface-overlay" />
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 animate-pulse rounded-full bg-surface-overlay" />
+          </div>
+        </nav>
+      </header>
+    );
+  }
 
   // Derive a human-readable label for the current page from the pathname.
   function getPageTitle(path: string): string {
@@ -160,7 +174,10 @@ export default function Header({
                 />
                 <button
                   role="menuitem"
-                  onClick={logout}
+                  onClick={() => {
+                    setOpen(false);
+                    requestLogout();
+                  }}
                   className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] font-semibold text-brand-crimson transition-colors hover:bg-brand-crimson/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-crimson"
                 >
                   <LogOut

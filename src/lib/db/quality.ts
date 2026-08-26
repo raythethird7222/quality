@@ -202,6 +202,7 @@ export async function getAccountEvaluationAnalytics(
   const manager = isManagerRole(user?.role);
 
   const supabase = createServerClient();
+
   let query = supabase
     .from("rm_qa_evaluations")
     .select(
@@ -210,19 +211,42 @@ export async function getAccountEvaluationAnalytics(
     .order("evaluation_date", { ascending: true });
 
   if (manager) {
-    // Managers / supervisors see the full analytics for this account
-    // (each account's data is distinct).
     query = query.eq("account_id", accountId);
-  } else if (user) {
-    // Everyone else only sees the evaluations tied to the agents they
-    // coach, lead, or evaluate.
-    query = query
-      .eq("account_id", accountId)
-      .or(
-        `qa_coach_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},agent_employee_id.eq.${user.employee_id}`
-      );
   } else {
     query = query.eq("account_id", accountId);
+    if (user) {
+      const { data: scopedAssignments } = await supabase
+        .from("agent_assignments")
+        .select("agent_employee_id")
+        .eq("account_id", accountId)
+        .or(
+          `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
+        );
+
+      const scopedAgentIds = [
+        ...new Set(
+          (scopedAssignments ?? [])
+            .map((a) => a.agent_employee_id)
+            .filter((id): id is number => id != null)
+        ),
+      ];
+
+      if (scopedAgentIds.length === 0) {
+        return {
+          totalEvaluations: 0,
+          avgScore: null,
+          failedEvaluations: 0,
+          trendData: [],
+          pieData: [],
+          barData: [],
+          rankingData: [],
+          agentPerformance: [],
+          filterOptions: { lobOptions: [], guidelineOptions: [] },
+        };
+      }
+
+      query = query.in("agent_employee_id", scopedAgentIds);
+    }
   }
 
   // Apply date range filters at the database level for performance.
