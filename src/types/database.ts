@@ -346,6 +346,47 @@ export interface Database {
           updated_at?: string;
         };
       };
+      agent_assignments: {
+        Row: {
+          assignment_id: number;
+          agent_employee_id: number;
+          account_id: number;
+          lob_id: number;
+          team_lead_employee_id: number;
+          qa_coach_employee_id: number;
+          qa_evaluator_employee_id: number;
+          effective_from: string | null;
+          effective_to: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          assignment_id?: number;
+          agent_employee_id: number;
+          account_id: number;
+          lob_id: number;
+          team_lead_employee_id: number;
+          qa_coach_employee_id: number;
+          qa_evaluator_employee_id: number;
+          effective_from?: string | null;
+          effective_to?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          assignment_id?: number;
+          agent_employee_id?: number;
+          account_id?: number;
+          lob_id?: number;
+          team_lead_employee_id?: number;
+          qa_coach_employee_id?: number;
+          qa_evaluator_employee_id?: number;
+          effective_from?: string | null;
+          effective_to?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -367,3 +408,4 @@ export type RmCover = Tables<"rm_covers">;
 export type RmMqpmPerformance = Tables<"rm_mqpm_performance">;
 export type Status = Tables<"statuses">;
 export type AssignmentReporting = Tables<"assignment_reporting">;
+export type AgentAssignment = Tables<"agent_assignments">;

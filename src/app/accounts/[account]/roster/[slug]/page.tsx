@@ -2,6 +2,7 @@
 import { notFound } from "next/navigation";
 import { getAccount, isValidAccount } from "@/features/accounts/config";
 import { requireAuth } from "@/lib/auth";
+import { getAgentEvaluations } from "@/lib/db/quality";
 import RosterCalendarView from "@/features/roster/components/RosterCalendarView";
 
 export default async function RosterPage({
@@ -22,12 +23,16 @@ export default async function RosterPage({
   // Look up the account configuration (accent, label, etc.).
   const config = getAccount(account);
 
+  // Fetch real evaluation data for this agent.
+  const evaluations = await getAgentEvaluations(account, slug);
+
   // Render the roster calendar view for the requested person.
   return (
     <RosterCalendarView
       account={account}
       personName={slug}
       accent={config.accent}
+      evaluations={evaluations}
     />
   );
 }

@@ -59,17 +59,40 @@ export default function Header({
 
   if (!mounted || !user || pathname === "/login") return null;
 
+  // Derive a human-readable label for the current page from the pathname.
+  function getPageTitle(path: string): string {
+    const segments = path.split("/").filter(Boolean);
+    if (segments.length === 0) return "Dashboard";
+    const [first, second, third] = segments;
+    if (first === "dashboard") return "Dashboard";
+    if (first === "settings") return "Settings";
+    if (first === "accounts") {
+      if (!second) return "Accounts";
+      if (!third) return "Accounts";
+      const page = third.charAt(0).toUpperCase() + third.slice(1);
+      return page;
+    }
+    return first.charAt(0).toUpperCase() + first.slice(1);
+  }
+
+  const pageTitle = getPageTitle(pathname);
+
   return (
     <header className="border-b border-border bg-surface-base/80 backdrop-blur">
       <nav className="navbar mx-auto flex max-w-[1440px] items-center justify-between px-6 py-3.5 md:px-10">
-        {/* Left: Mobile menu toggle */}
-        <button
-          onClick={onMenuClick}
-          aria-label="Open navigation"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border-default bg-surface-raised text-text-primary transition-colors hover:bg-surface-overlay md:hidden"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
+        {/* Left: Mobile menu toggle + active page title */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onMenuClick}
+            aria-label="Open navigation"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border-default bg-surface-raised text-text-primary transition-colors hover:bg-surface-overlay md:hidden"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <h1 className="text-base font-semibold text-text-primary" suppressHydrationWarning>
+            {pageTitle}
+          </h1>
+        </div>
 
         {/* Right: User controls */}
         <div className="ml-auto flex items-center gap-2.5 md:gap-3">
@@ -80,7 +103,7 @@ export default function Header({
               aria-haspopup="menu"
               aria-expanded={open}
               aria-label={`Profile menu for ${user.employee_name ?? ""}`}
-              className={`flex items-center gap-2 rounded-md border bg-surface-raised px-1.5 py-1.5 text-text-primary transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-accent sm:px-2 ${open ? "border-border-accent bg-surface-overlay" : "border-border-default"}`}
+              className={`flex items-center gap-2 rounded-full border bg-surface-raised px-1.5 py-1.5 text-text-primary transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-accent sm:px-2 ${open ? "border-border-accent bg-surface-overlay" : "border-border-default"}`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- SVG data URI avatar or stored profile photo */}
               <img

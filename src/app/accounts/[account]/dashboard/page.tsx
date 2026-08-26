@@ -65,11 +65,15 @@ export default async function AccountDashboardPage({
   const perfByName = new Map(
     analytics.agentPerformance.map((p) => [p.name, p])
   );
-  // Merge performance data onto each agent, falling back to the agent record.
-  const people = agents.map((agent) => {
-    const perf = perfByName.get(agent.name);
-    return perf ?? agent;
-  });
+  // Build a set of assigned agent names from the assignment rows.
+  const assignedNames = new Set(agentRows.map((r) => r.name));
+  // Only include agents that have an active assignment in this account.
+  const people = agents
+    .filter((agent) => assignedNames.has(agent.name))
+    .map((agent) => {
+      const perf = perfByName.get(agent.name);
+      return perf ?? agent;
+    });
 
   // Render the dashboard view with the assembled account data.
   return (

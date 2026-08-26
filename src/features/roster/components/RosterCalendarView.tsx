@@ -2,24 +2,22 @@
 
 // Roster calendar view: agent monthly calendar with evaluation days and popup.
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
 import { slugToDisplayName } from "@/lib/utils";
+import { createBrowserClient } from "@/lib/supabase/client";
 import type { Accent, EvaluationDay } from "@/types";
+import type { AgentEvaluation } from "@/lib/db/quality";
 
 // Props for the roster calendar view.
 type RosterCalendarViewProps = {
   account: string;
   personName: string;
   accent: Accent;
+  evaluations: AgentEvaluation[];
 };
-
-// Placeholder evaluation day markers (no real data wired yet).
-const evaluationDays: number[] = [];
-// Placeholder map of evaluation day details keyed by day number.
-const evaluationDetails: Record<number, EvaluationDay> = {};
 
 // Month name labels used in the calendar header.
 const months = [
@@ -42,27 +40,96 @@ export default function RosterCalendarView({
   account,
   personName,
   accent,
+  evaluations: initialEvaluations,
 }: RosterCalendarViewProps) {
-  // Index of the displayed month (0=Jan ... 11=Dec); starts on August.
-  const [currentMonth, setCurrentMonth] = useState(7);
-  // Year shown by the calendar (static placeholder).
-  const [currentYear] = useState(2026);
+  // Index of the displayed month (0=Jan ... 11=Dec); starts on current month.
+  const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
+  // Year shown by the calendar.
+  const [currentYear] = useState(() => new Date().getFullYear());
   // Day number for the open detail popup, or null when closed.
   const [popupDay, setPopupDay] = useState<number | null>(null);
+  // Live evaluations state — updated via Supabase Realtime.
+  const [evaluations, setEvaluations] =
+    useState<AgentEvaluation[]>(initialEvaluations);
   const router = useRouter();
   const a = getAccentColors(accent);
 
-  // Weekday index of the 1st of the month, used for leading empty cells.
-  const firstDay = new Date(currentYear, currentMonth, 1).getDay();
-  // Total number of days in the displayed month.
-  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-  // Hard-coded "today" marker (15th) used for highlighting the current day.
-  const today = 15;
+  // Supabase Realtime: listen for INSERT/UPDATE/DELETE on rm_qa_evaluations
+  // so the calendar updates instantly when new evaluations come in.
+  useEffect(() => {
+    const supabase = createBrowserClient();
+    const channel = supabase
+      .channel("roster-evaluations")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "rm_qa_evaluations" },
+        () => {
+          // Re-fetch the full evaluation list for this agent on any change.
+          fetch(`/api/evaluations?account=${account}&agent=${personName}`)
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.evaluations) setEvaluations(data.evaluations);
+            })
+            .catch(console.error);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [account, personName]);
+
+  // Today's date for highlighting.
+  const todayDate = new Date();
+  const todayDay = todayDate.getDate();
+  const todayMonth = todayDate.getMonth();
+  const todayYear = todayDate.getFullYear();
 
   const displayName = slugToDisplayName(personName);
 
+  // Build lookup maps from evaluation data for the current month.
+  const { evaluationDays, evaluationDetails } = useMemo(() => {
+    const days = new Set<number>();
+    const details: Record<
+      number,
+      { evaluations: EvaluationDay[]; score: string }
+    > = {};
+
+    for (const ev of evaluations) {
+      if (!ev.evaluation_date) continue;
+      const parts = ev.evaluation_date.split("-");
+      if (parts.length < 3) continue;
+      const evYear = parseInt(parts[0], 10);
+      const evMonth = parseInt(parts[1], 10) - 1;
+      const evDay = parseInt(parts[2], 10);
+
+      if (evYear !== currentYear || evMonth !== currentMonth) continue;
+
+      days.add(evDay);
+
+      if (!details[evDay]) {
+        details[evDay] = { evaluations: [], score: "" };
+      }
+      details[evDay].evaluations.push({
+        time: ev.evaluation_date,
+        type: ev.guideline ?? "Evaluation",
+        score: ev.qa_score != null ? `${ev.qa_score}%` : "--",
+      });
+      // Show the latest score for the day badge.
+      if (ev.qa_score != null) {
+        details[evDay].score = `${ev.qa_score}%`;
+      }
+    }
+
+    return { evaluationDays: days, evaluationDetails: details };
+  }, [evaluations, currentMonth, currentYear]);
+
   // Memoized grid of calendar cells (empty padding + real days) for the month.
   const calendarDays = useMemo(() => {
+    const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
     const emptyDays: { key: string; empty: true }[] = Array.from(
       { length: firstDay },
       (_, i) => ({ key: `empty-${i}`, empty: true })
@@ -73,14 +140,13 @@ export default function RosterCalendarView({
         key: `day-${day}`,
         day,
         empty: false as const,
-        isToday: day === today && currentMonth === 7,
-        hasEvaluation:
-          currentMonth === 7 && evaluationDays.includes(day),
+        today: day === todayDay && currentMonth === todayMonth && currentYear === todayYear,
+        hasEvaluation: evaluationDays.has(day),
         detail: evaluationDetails[day],
       };
     });
     return [...emptyDays, ...realDays];
-  }, [firstDay, daysInMonth, currentMonth]);
+  }, [currentMonth, currentYear, evaluationDays, evaluationDetails, todayDay, todayMonth, todayYear]);
 
   return (
     <div className="min-h-full bg-surface-base text-text-primary">
@@ -119,7 +185,6 @@ export default function RosterCalendarView({
           {/* Month Header */}
           <div className="flex items-center justify-between border-b border-border-subtle bg-surface-raised/50 px-6 py-4">
             <button
-              // Step to the previous month, wrapping from January to December.
               onClick={() =>
                 setCurrentMonth((m) => (m === 0 ? 11 : m - 1))
               }
@@ -136,7 +201,6 @@ export default function RosterCalendarView({
               </span>
             </div>
             <button
-              // Step to the next month, wrapping from December to January.
               onClick={() =>
                 setCurrentMonth((m) => (m === 11 ? 0 : m + 1))
               }
@@ -148,7 +212,6 @@ export default function RosterCalendarView({
 
           {/* Day of Week Headers */}
           <div className="grid grid-cols-7 border-b border-border-subtle">
-            {/* Render the weekday column headers */}
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
               (d, i) => (
                 <div
@@ -168,7 +231,6 @@ export default function RosterCalendarView({
           {/* Calendar Grid */}
           <div className="grid grid-cols-7">
             {calendarDays.map((cell) => {
-              // Leading padding cells before the first day of the month.
               if (cell.empty) {
                 return (
                   <div
@@ -180,23 +242,24 @@ export default function RosterCalendarView({
 
               const {
                 day,
-                isToday,
+                today: cellToday,
                 hasEvaluation,
                 detail,
               } = cell as {
                 day: number;
-                isToday: boolean;
+                today: boolean;
                 hasEvaluation: boolean;
-                detail: EvaluationDay | undefined;
+                detail:
+                  | { evaluations: EvaluationDay[]; score: string }
+                  | undefined;
               };
 
               return (
                 <button
                   key={cell.key}
-                   // Open the detail popup for the clicked day.
-                   onClick={() => setPopupDay(day)}
+                  onClick={() => setPopupDay(day)}
                   className={`group relative flex min-h-[90px] flex-col border-b border-r border-border-subtle/50 p-2.5 transition-all duration-150 ${
-                    isToday
+                    cellToday
                       ? `border-2 ${a.border} bg-card`
                       : hasEvaluation
                         ? "bg-card hover:shadow-md hover:z-10"
@@ -206,7 +269,7 @@ export default function RosterCalendarView({
                   <div className="flex items-start justify-between">
                     <span
                       className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[12px] font-bold ${
-                        isToday
+                        cellToday
                           ? `${a.bgLight} ${a.text}`
                           : hasEvaluation
                             ? "text-text-primary"
@@ -215,7 +278,7 @@ export default function RosterCalendarView({
                     >
                       {day}
                     </span>
-                    {isToday && (
+                    {cellToday && (
                       <span className="rounded-full bg-brand-crimson px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
                         Today
                       </span>
@@ -284,46 +347,53 @@ export default function RosterCalendarView({
 
             <div className="border-b border-border-subtle px-6 py-4">
               <h2 className="text-[15px] font-bold text-text-primary">
-                Operational Action Parameter Required
+                Evaluations for {months[currentMonth]} {popupDay}
               </h2>
             </div>
 
             <div className="px-6 py-5">
-              {currentMonth === 7 && evaluationDetails[popupDay] ? (
+              {evaluationDetails[popupDay] ? (
                 <div className="space-y-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-                    Existing Evaluations
+                    Existing Evaluations ({evaluationDetails[popupDay].evaluations.length})
                   </p>
-                  <div className="rounded-lg border border-border-default bg-surface-raised p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span
-                          className={`flex-shrink-0 h-2 w-2 rounded-full ${a.bg}`}
-                        />
-                        <div className="min-w-0">
-                          <div
-                            className={`text-[14px] font-bold ${a.text}`}
-                          >
-                            {evaluationDetails[popupDay].score}
-                          </div>
-                          <div className="truncate text-[11px] text-text-secondary">
-                            {evaluationDetails[popupDay].type} &middot;{" "}
-                            {evaluationDetails[popupDay].time}
+                  <div className="max-h-[300px] space-y-2 overflow-y-auto">
+                    {evaluationDetails[popupDay].evaluations.map(
+                      (ev, i) => (
+                        <div
+                          key={i}
+                          className="rounded-lg border border-border-default bg-surface-raised p-3"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span
+                                className={`flex-shrink-0 h-2 w-2 rounded-full ${a.bg}`}
+                              />
+                              <div className="min-w-0">
+                                <div
+                                  className={`text-[14px] font-bold ${a.text}`}
+                                >
+                                  {ev.score}
+                                </div>
+                                <div className="truncate text-[11px] text-text-secondary">
+                                  {ev.type}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() =>
+                                router.push(
+                                  `/accounts/${account}/roster/${personName}/evaluation/eval-${account}-${popupDay}-${i}`
+                                )
+                              }
+                              className={`flex-shrink-0 rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition ${a.hoverBg}`}
+                            >
+                              View
+                            </button>
                           </div>
                         </div>
-                      </div>
-                      <button
-                         // Navigate to the full evaluation detail page for this day.
-                         onClick={() =>
-                           router.push(
-                             `/accounts/${account}/roster/${personName}/evaluation/eval-${account}-cxl-${popupDay}-05aug2026-01`
-                           )
-                         }
-                        className={`flex-shrink-0 rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition ${a.hoverBg}`}
-                      >
-                        View
-                      </button>
-                    </div>
+                      )
+                    )}
                   </div>
                 </div>
               ) : (

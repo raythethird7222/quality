@@ -1,7 +1,7 @@
 "use client";
 
 // Team analytics view: trend, volume, defect, and ranking charts for an account.
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
@@ -35,9 +35,11 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Pagination, { paginate } from "@/components/ui/pagination";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
 import { useAccent, useAccentHex } from "@/features/settings/useAccent";
+import { createBrowserClient } from "@/lib/supabase/client";
 
 // Props for the team analytics view.
 type TeamAnalyticsViewProps = {
@@ -53,6 +55,7 @@ type TeamAnalyticsViewProps = {
     evaluations: number;
     trend: number[];
   }[];
+  filterOptions?: { lobOptions: string[]; guidelineOptions: string[] };
 };
 
 // Selectable trend window options for the analytics filter toolbar.
@@ -63,6 +66,22 @@ const timeframes = [
   "Quarterly",
   "Yearly",
 ] as const;
+
+// Month names for calendar navigation.
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+// Returns the number of days in a given month/year.
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+// Returns the day-of-week (0=Sun) for the first day of a month.
+function firstDayOfMonth(year: number, month: number): number {
+  return new Date(year, month, 1).getDay();
+}
 
 // Renders a medal/rank badge for the performance ranking table.
 function RankBadge({ rank, color }: { rank: number; color: string }) {
@@ -89,25 +108,161 @@ function RankBadge({ rank, color }: { rank: number; color: string }) {
   );
 }
 
+// Format a Date object to a short display string like "AUG 15, 2026".
+function formatDisplayDate(d: Date): string {
+  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+// Format a Date object to an ISO date string YYYY-MM-DD.
+function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 // Main team analytics view: header, filter toolbar, and chart/ranking sections.
 export default function TeamAnalyticsView({
   account,
-  qaName,
-  trendData = [],
-  pieData = [],
-  barData = [],
-  rankingData = [],
+  qaName: initialQaName,
+  trendData: initialTrendData = [],
+  pieData: initialPieData = [],
+  barData: initialBarData = [],
+  rankingData: initialRankingData = [],
+  filterOptions: initialFilterOptions = { lobOptions: [], guidelineOptions: [] },
 }: TeamAnalyticsViewProps) {
-  // Controls visibility of the calendar date picker popover.
-  const [calendarOpen, setCalendarOpen] = useState(false);
-  // Tracks the currently selected trend window (Daily/Weekly/...).
+  // Live analytics state — updated via Supabase Realtime and filter re-fetches.
+  const [liveQaName, setLiveQaName] = useState(initialQaName);
+  const [liveTrendData, setLiveTrendData] = useState(initialTrendData);
+  const [livePieData, setLivePieData] = useState(initialPieData);
+  const [liveBarData, setLiveBarData] = useState(initialBarData);
+  const [liveRankingData, setLiveRankingData] = useState(initialRankingData);
+  const [liveFilterOptions, setLiveFilterOptions] = useState(initialFilterOptions);
+
+  // Ranking pagination state.
+  const [rankPage, setRankPage] = useState(1);
+  const [rankPageSize, setRankPageSize] = useState(10);
+
+  // Filter state.
+  const [lobFilter, setLobFilter] = useState("All LOBs");
+  const [guidelineFilter, setGuidelineFilter] = useState("All Guidelines");
   const [activeTimeframe, setActiveTimeframe] = useState<string>("Daily");
-  // Normalize account name into a URL-safe slug for the back link.
+
+  // Date picker state.
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const calRef = useRef<HTMLDivElement>(null);
+
+  // Controls visibility of the calendar date picker popover.
   const unit = account.toLowerCase();
   // Resolve the active theme accent, its classes, and raw hex value.
   const selectedAccent = useAccent();
   const a = getAccentColors(selectedAccent);
   const accentHex = useAccentHex();
+
+  // Build the API URL with all current filters.
+  const buildApiUrl = useCallback(
+    (overrides?: { timeframe?: string; date?: Date; lob?: string; guideline?: string }) => {
+      const tf = overrides?.timeframe ?? activeTimeframe;
+      const dt = overrides?.date ?? selectedDate;
+      const lob = overrides?.lob ?? lobFilter;
+      const guideline = overrides?.guideline ?? guidelineFilter;
+
+      const params = new URLSearchParams({ account: account.toLowerCase() });
+      if (tf && tf !== "Daily") params.set("timeframe", tf);
+      if (lob && lob !== "All LOBs") params.set("lob", lob);
+      if (guideline && guideline !== "All Guidelines") params.set("guideline", guideline);
+
+      // Use the selected date as the date range (single day).
+      params.set("dateFrom", toISODate(dt));
+      params.set("dateTo", toISODate(dt));
+
+      return `/api/analytics?${params.toString()}`;
+    },
+    [account, activeTimeframe, selectedDate, lobFilter, guidelineFilter]
+  );
+
+  // Fetch analytics data with current filters.
+  const fetchAnalytics = useCallback(
+    async (overrides?: { timeframe?: string; date?: Date; lob?: string; guideline?: string }) => {
+      try {
+        const url = buildApiUrl(overrides);
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.trendData) setLiveTrendData(data.trendData);
+        if (data.pieData) setLivePieData(data.pieData);
+        if (data.barData) setLiveBarData(data.barData);
+        if (data.rankingData) setLiveRankingData(data.rankingData);
+        if (data.qaName) setLiveQaName(data.qaName);
+        if (data.filterOptions) setLiveFilterOptions(data.filterOptions);
+      } catch (e) {
+        console.error("Failed to fetch analytics:", e);
+      }
+    },
+    [buildApiUrl]
+  );
+
+  // Supabase Realtime: listen for changes on rm_qa_evaluations
+  // and re-fetch analytics so charts stay live.
+  useEffect(() => {
+    const supabase = createBrowserClient();
+    const channel = supabase
+      .channel("analytics-evaluations")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "rm_qa_evaluations" },
+        () => {
+          fetchAnalytics();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchAnalytics]);
+
+  // Close calendar when clicking outside.
+  useEffect(() => {
+    if (!calendarOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (calRef.current && !calRef.current.contains(e.target as Node)) {
+        setCalendarOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [calendarOpen]);
+
+  // Navigate to previous/next day.
+  const navigateDay = useCallback(
+    (direction: -1 | 1) => {
+      const next = new Date(selectedDate);
+      next.setDate(next.getDate() + direction);
+      setSelectedDate(next);
+      fetchAnalytics({ date: next });
+    },
+    [selectedDate, fetchAnalytics]
+  );
+
+  // Select a specific day in the calendar.
+  const selectCalendarDay = useCallback((day: number) => {
+    const d = new Date(calYear, calMonth, day);
+    setSelectedDate(d);
+    setCalendarOpen(false);
+    fetchAnalytics({ date: d });
+  }, [calYear, calMonth, fetchAnalytics]);
+
+  // Calendar grid data.
+  const calDays = useMemo(() => {
+    const total = daysInMonth(calYear, calMonth);
+    const startDay = firstDayOfMonth(calYear, calMonth);
+    return { total, startDay };
+  }, [calYear, calMonth]);
 
   // Chart metadata: series labels and colors for the trend/area chart.
   const trendChartConfig = {
@@ -143,7 +298,7 @@ export default function TeamAnalyticsView({
           </h1>
           <p className="mt-1 text-[13px]">
             Scope:{" "}
-            <span className={`font-semibold ${a.text}`}>{qaName}</span>
+            <span className={`font-semibold ${a.text}`}>{liveQaName}</span>
             <span className="mx-1.5 text-text-muted">&middot;</span>
             <span className="text-text-secondary">{account}</span>
           </p>
@@ -152,34 +307,59 @@ export default function TeamAnalyticsView({
         {/* Filter Toolbar */}
         <div className="mb-8 rounded-2xl border border-border-default bg-card p-3 shadow-sm">
           <div className="flex items-center gap-2">
+            {/* LOB Filter */}
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-raised">
                 <Layers size={14} className="text-text-muted" />
               </span>
-              <select className="min-w-0 flex-1 rounded-lg border border-border-default bg-card px-2.5 py-1.5 text-xs text-text-primary outline-none">
+              <select
+                value={lobFilter}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setLobFilter(v);
+                  fetchAnalytics({ lob: v });
+                }}
+                className="min-w-0 flex-1 rounded-lg border border-border-default bg-card px-2.5 py-1.5 text-xs text-text-primary outline-none"
+              >
                 <option>All LOBs</option>
-                <option>MAIN</option>
+                {liveFilterOptions.lobOptions.map((lob) => (
+                  <option key={lob} value={lob}>{lob}</option>
+                ))}
               </select>
             </div>
 
+            {/* Guideline Filter */}
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-raised">
                 <Filter size={14} className="text-text-muted" />
               </span>
-              <select className="min-w-0 flex-1 rounded-lg border border-border-default bg-card px-2.5 py-1.5 text-xs text-text-primary outline-none">
+              <select
+                value={guidelineFilter}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setGuidelineFilter(v);
+                  fetchAnalytics({ guideline: v });
+                }}
+                className="min-w-0 flex-1 rounded-lg border border-border-default bg-card px-2.5 py-1.5 text-xs text-text-primary outline-none"
+              >
                 <option>All Guidelines</option>
-                <option>MAIN</option>
+                {liveFilterOptions.guidelineOptions.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
               </select>
             </div>
 
             <div className="h-6 w-px shrink-0 bg-border-default" />
 
+            {/* Timeframe Toggle */}
             <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border-default bg-surface-raised p-0.5">
-              {/* Render a toggle button per timeframe; selects active window */}
               {timeframes.map((tf) => (
                 <button
                   key={tf}
-                  onClick={() => setActiveTimeframe(tf)}
+                  onClick={() => {
+                    setActiveTimeframe(tf);
+                    fetchAnalytics({ timeframe: tf });
+                  }}
                   className={`rounded-md px-2 py-1 text-[11px] font-medium transition whitespace-nowrap ${
                     activeTimeframe === tf
                       ? `${a.bgLight} ${a.text}`
@@ -193,36 +373,56 @@ export default function TeamAnalyticsView({
 
             <div className="h-6 w-px shrink-0 bg-border-default" />
 
+            {/* Date Navigation */}
             <div className="flex shrink-0 items-center gap-1.5">
-              <button className="flex items-center gap-1 rounded-md border border-border-default bg-card px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition hover:bg-surface-raised">
+              <button
+                onClick={() => navigateDay(-1)}
+                className="flex items-center gap-1 rounded-md border border-border-default bg-card px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition hover:bg-surface-raised"
+              >
                 <ChevronLeft size={12} />
                 Prev
               </button>
-              <div className="relative">
+              <div className="relative" ref={calRef}>
                 <button
-                  // Toggle the calendar date picker popover open/closed.
                   onClick={() => setCalendarOpen(!calendarOpen)}
                   className={`flex items-center gap-1.5 rounded-md border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition hover:bg-surface-elevated`}
                 >
                   <CalendarDays size={12} />
-                  AUG 15, 2026
+                  {formatDisplayDate(selectedDate)}
                 </button>
                 {calendarOpen && (
                   <div className="absolute left-1/2 top-full z-50 mt-2 w-[260px] -translate-x-1/2 rounded-xl border border-border-default bg-card p-4 shadow-xl">
+                    {/* Calendar Header with month navigation */}
                     <div className="mb-3 flex items-center justify-between">
                       <button
-                        onClick={() => setCalendarOpen(false)}
-                        className="text-text-muted hover:text-text-primary"
+                        onClick={() => {
+                          if (calMonth === 0) {
+                            setCalMonth(11);
+                            setCalYear((y) => y - 1);
+                          } else {
+                            setCalMonth((m) => m - 1);
+                          }
+                        }}
+                        className="rounded p-1 transition hover:bg-surface-overlay"
                       >
-                        <ChevronLeft size={16} />
+                        <ChevronLeft size={16} className="text-text-muted" />
                       </button>
                       <span className="text-sm font-semibold text-text-primary">
-                        August 2026
+                        {MONTH_NAMES[calMonth]} {calYear}
                       </span>
-                      <ChevronRight
-                        size={16}
-                        className="text-text-muted"
-                      />
+                      <button
+                        onClick={() => {
+                          if (calMonth === 11) {
+                            setCalMonth(0);
+                            setCalYear((y) => y + 1);
+                          } else {
+                            setCalMonth((m) => m + 1);
+                          }
+                        }}
+                        className="rounded p-1 transition hover:bg-surface-overlay"
+                      >
+                        <ChevronRight size={16} className="text-text-muted" />
+                      </button>
                     </div>
                     <div className="mb-1 grid grid-cols-7 text-center text-[10px] font-semibold text-text-muted">
                       {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(
@@ -234,24 +434,39 @@ export default function TeamAnalyticsView({
                       )}
                     </div>
                     <div className="grid grid-cols-7 gap-0.5 text-center text-xs">
-                      {/* Render a clickable day cell for each day of the month */}
-                      {Array.from({ length: 31 }).map((_, i) => (
-                        <button
-                          key={i}
-                          className={`rounded-lg py-1.5 transition ${
-                            i + 1 === 15
-                              ? `${a.bg} text-white font-semibold`
-                              : "text-text-primary hover:bg-surface-raised"
-                          }`}
-                        >
-                          {i + 1}
-                        </button>
+                      {/* Empty cells for days before the 1st */}
+                      {Array.from({ length: calDays.startDay }).map((_, i) => (
+                        <div key={`empty-${i}`} />
                       ))}
+                      {/* Render a clickable day cell for each day of the month */}
+                      {Array.from({ length: calDays.total }).map((_, i) => {
+                        const day = i + 1;
+                        const isSelected =
+                          selectedDate.getDate() === day &&
+                          selectedDate.getMonth() === calMonth &&
+                          selectedDate.getFullYear() === calYear;
+                        return (
+                          <button
+                            key={day}
+                            onClick={() => selectCalendarDay(day)}
+                            className={`rounded-lg py-1.5 transition ${
+                              isSelected
+                                ? `${a.bg} text-white font-semibold`
+                                : "text-text-primary hover:bg-surface-raised"
+                            }`}
+                          >
+                            {day}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
               </div>
-              <button className="flex items-center gap-1 rounded-md border border-border-default bg-card px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition hover:bg-surface-raised">
+              <button
+                onClick={() => navigateDay(1)}
+                className="flex items-center gap-1 rounded-md border border-border-default bg-card px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition hover:bg-surface-raised"
+              >
                 Next
                 <ChevronRight size={12} />
               </button>
@@ -281,18 +496,17 @@ export default function TeamAnalyticsView({
                  <span
                    className={`block text-sm font-bold ${a.text}`}
                  >
-                   {trendData.length > 0
+                   {liveTrendData.length > 0
                       ? `${(
-                          // Average the trend values for the header summary.
-                          trendData.reduce((s, d) => s + d.value, 0) /
-                          trendData.length
+                          liveTrendData.reduce((s, d) => s + d.value, 0) /
+                    liveTrendData.length
                         ).toFixed(1)}%`
                      : "--"}
                  </span>
               </div>
             </CardHeader>
             <CardContent>
-              {trendData.length === 0 ? (
+              {liveTrendData.length === 0 ? (
                 <div className="flex h-[220px] w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border-subtle bg-surface-raised/50">
                   <p className="text-sm font-semibold text-text-primary">
                     No trend data
@@ -308,7 +522,7 @@ export default function TeamAnalyticsView({
                   className="h-[220px] w-full"
                 >
                   <AreaChart
-                    data={trendData}
+                    data={liveTrendData}
                     margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
                   >
                     <defs>
@@ -397,7 +611,7 @@ export default function TeamAnalyticsView({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {pieData.length === 0 ? (
+              {livePieData.length === 0 ? (
                 <div className="flex h-[220px] w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border-subtle bg-surface-raised/50">
                   <p className="text-sm font-semibold text-text-primary">
                     No volume data
@@ -417,7 +631,7 @@ export default function TeamAnalyticsView({
                       content={<ChartTooltipContent hideLabel />}
                     />
                     <Pie
-                      data={pieData}
+                      data={livePieData}
                       dataKey="value"
                       nameKey="name"
                       cx="50%"
@@ -427,8 +641,7 @@ export default function TeamAnalyticsView({
                       strokeWidth={2}
                       stroke="#F8F8F6"
                     >
-                       {/* Color each pie slice with its configured fill */}
-                       {pieData.map((entry, index) => (
+                       {livePieData.map((entry, index) => (
                          <Cell
                            key={`cell-${index}`}
                            fill={entry.fill}
@@ -438,7 +651,6 @@ export default function TeamAnalyticsView({
                     <Legend
                       content={({ payload }) => (
                         <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                           {/* Render a colored swatch + label per legend entry */}
                            {payload?.map((entry) => (
                             <div
                               key={entry.value}
@@ -476,7 +688,7 @@ export default function TeamAnalyticsView({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {barData.length === 0 ? (
+            {liveBarData.length === 0 ? (
               <div className="flex h-[180px] w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border-subtle bg-surface-raised/50">
                 <p className="text-sm font-semibold text-text-primary">
                   No defect data
@@ -492,7 +704,7 @@ export default function TeamAnalyticsView({
                 className="h-[180px] w-full"
               >
                 <BarChart
-                  data={barData}
+                    data={liveBarData}
                   margin={{ top: 5, right: 10, left: -10, bottom: 0 }}
                 >
                   <CartesianGrid
@@ -561,7 +773,7 @@ export default function TeamAnalyticsView({
                   </tr>
                 </thead>
                 <tbody>
-                  {rankingData.length === 0 ? (
+                  {liveRankingData.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="p-8 text-center">
                         <p className="text-sm font-semibold text-text-primary">
@@ -574,12 +786,11 @@ export default function TeamAnalyticsView({
                       </td>
                     </tr>
                     ) : (
-                      rankingData.map((row) => (
+                      paginate(liveRankingData, rankPage, rankPageSize).map((row) => (
                       <tr
                         key={row.rank}
                         className="border-b border-border-default transition hover:bg-surface-raised"
                       >
-                        {/* Render one table row per ranked agent */}
                         <td className="p-3">
                           <RankBadge rank={row.rank} color={accentHex} />
                         </td>
@@ -615,7 +826,6 @@ export default function TeamAnalyticsView({
                                 bottom: 2,
                               }}
                             >
-                              {/* Convert the trend number array into chart points. */}
                               <Line
                                 type="monotone"
                                 dataKey="v"
@@ -632,6 +842,18 @@ export default function TeamAnalyticsView({
                 </tbody>
               </table>
             </div>
+            {liveRankingData.length > 0 && (
+              <Pagination
+                currentPage={rankPage}
+                pageSize={rankPageSize}
+                totalItems={liveRankingData.length}
+                onPageChange={setRankPage}
+                onPageSizeChange={(size) => {
+                  setRankPageSize(size);
+                  setRankPage(1);
+                }}
+              />
+            )}
           </CardContent>
         </Card>
       </div>

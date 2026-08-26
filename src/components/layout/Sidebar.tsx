@@ -107,11 +107,7 @@ export default function Sidebar({
         style={{ backgroundColor: "var(--app-accent)" }}
         aria-label="Primary navigation"
       >
-        {/* Brand header with the QA-REY wordmark and the mobile close button. */}
-        <div className="flex h-20 items-center justify-between border-b border-white/20 px-5">
-          <span className="text-lg font-bold tracking-tight text-[var(--app-accent-contrast)]">
-            QA<span className="opacity-70">-</span>REY
-          </span>
+        <div className="flex h-20 items-center justify-end border-b border-white/20 px-5">
           <button
             onClick={onClose}
             aria-label="Close navigation"
@@ -167,7 +163,7 @@ export default function Sidebar({
                     onClick={onClose}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                      "ml-3 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                       active
                         ? "opacity-100"
                         : "text-[var(--app-accent-contrast)] opacity-80 hover:bg-white/10 hover:opacity-100"
@@ -178,20 +174,6 @@ export default function Sidebar({
                         : undefined
                     }
                   >
-                    <span
-                      className={cn(
-                        "grid h-5 w-5 place-items-center rounded text-[10px] font-bold",
-                        !active && "bg-white/15 text-[var(--app-accent-contrast)]"
-                      )}
-                      style={
-                        active
-                          ? { backgroundColor: "var(--app-accent-contrast)", color: "var(--app-accent)" }
-                          : undefined
-                      }
-                      aria-hidden="true"
-                    >
-                      {account.label.slice(0, 2)}
-                    </span>
                     <span className="truncate">{account.label}</span>
                   </Link>
                 );

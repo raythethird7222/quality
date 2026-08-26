@@ -1,6 +1,7 @@
 // Quality data access: queries for QA evaluations, parameters, covers, MQPM
 // performance, and the analytics aggregations that power the dashboards.
 
+import { unstable_cache } from "next/cache";
 import { createServerClient } from "@/lib/supabase/server";
 import type { AuthUser, UserRole } from "@/types";
 
@@ -20,7 +21,7 @@ function isManagerRole(role: UserRole | undefined): boolean {
 }
 
 // Resolves an account's numeric id from its (case-insensitive) code.
-async function getAccountIdByCode(accountCode: string): Promise<number | null> {
+export async function getAccountIdByCode(accountCode: string): Promise<number | null> {
   const supabase = createServerClient();
   const { data, error } = await supabase
     .from("accounts")
@@ -129,6 +130,21 @@ export async function getMqpmPerformanceByAccount(accountCode: string) {
   return (data ?? []) as import("@/types/database").RmMqpmPerformance[];
 }
 
+// Filter options for analytics queries.
+export type AnalyticsFilters = {
+  lob?: string;
+  guideline?: string;
+  timeframe?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+// Filter options returned to the frontend for populating dropdowns.
+export type AnalyticsFilterOptions = {
+  lobOptions: string[];
+  guidelineOptions: string[];
+};
+
 // Aggregated analytics for an account: scores, trends, distributions, rankings.
 export type EvaluationAnalytics = {
   totalEvaluations: number;
@@ -149,6 +165,7 @@ export type EvaluationAnalytics = {
     score: string;
     opportunities: number;
   }[];
+  filterOptions: AnalyticsFilterOptions;
 };
 
 const PIE_FILLS = [
@@ -164,7 +181,8 @@ const PIE_FILLS = [
 // caller's role (managers see everything; others see only their agents).
 export async function getAccountEvaluationAnalytics(
   accountCode: string,
-  user?: AuthUser
+  user?: AuthUser,
+  filters?: AnalyticsFilters
 ): Promise<EvaluationAnalytics> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) {
@@ -177,6 +195,7 @@ export async function getAccountEvaluationAnalytics(
       barData: [],
       rankingData: [],
       agentPerformance: [],
+      filterOptions: { lobOptions: [], guidelineOptions: [] },
     };
   }
 
@@ -206,6 +225,14 @@ export async function getAccountEvaluationAnalytics(
     query = query.eq("account_id", accountId);
   }
 
+  // Apply date range filters at the database level for performance.
+  if (filters?.dateFrom) {
+    query = query.gte("evaluation_date", filters.dateFrom);
+  }
+  if (filters?.dateTo) {
+    query = query.lte("evaluation_date", filters.dateTo);
+  }
+
   const { data, error } = await query;
 
   if (error || !data) {
@@ -219,6 +246,7 @@ export async function getAccountEvaluationAnalytics(
       barData: [],
       rankingData: [],
       agentPerformance: [],
+      filterOptions: { lobOptions: [], guidelineOptions: [] },
     };
   }
 
@@ -244,27 +272,83 @@ export async function getAccountEvaluationAnalytics(
   const lobName = new Map<number, string>(
     (lobs ?? []).map((l) => [l.lob_id, l.lob_name])
   );
+  // Build reverse map: lob_name → lob_id for filter lookups.
+  const lobIdByName = new Map<string, number>(
+    (lobs ?? []).map((l) => [l.lob_name, l.lob_id])
+  );
+
+  // Collect distinct LOB and guideline options for filter dropdowns.
+  const lobOptionSet = new Set<string>();
+  const guidelineOptionSet = new Set<string>();
+  for (const e of evaluations) {
+    if (e.lob_id != null) {
+      const name = lobName.get(e.lob_id);
+      if (name) lobOptionSet.add(name);
+    }
+    if (e.guideline?.trim()) guidelineOptionSet.add(e.guideline.trim());
+  }
+  const lobOptions = [...lobOptionSet].sort();
+  const guidelineOptions = [...guidelineOptionSet].sort();
+
+  // Apply LOB filter post-fetch (lob_id ↔ lob_name join).
+  let filtered = evaluations;
+  if (filters?.lob && filters.lob !== "All LOBs") {
+    const targetLobId = lobIdByName.get(filters.lob);
+    if (targetLobId != null) {
+      filtered = filtered.filter((e) => e.lob_id === targetLobId);
+    }
+  }
+  // Apply guideline filter post-fetch.
+  if (filters?.guideline && filters.guideline !== "All Guidelines") {
+    filtered = filtered.filter(
+      (e) => e.guideline?.trim() === filters.guideline
+    );
+  }
 
   // Evaluations that actually carry a QA score (used for averages/defects).
-  const scored = evaluations.filter(
+  const scored = filtered.filter(
     (e): e is typeof e & { qa_score: number } => e.qa_score != null
   );
 
-  const totalEvaluations = evaluations.length;
+  const totalEvaluations = filtered.length;
   const avgScore =
     scored.length > 0
       ? scored.reduce((s, e) => s + e.qa_score, 0) / scored.length
       : null;
   const failedEvaluations = scored.filter((e) => e.qa_score < 90).length;
 
-  // Trend: average QA score per evaluation day.
+  // Group scores into buckets based on the selected timeframe.
+  function getDateKey(dateStr: string, tf: string): string {
+    if (!dateStr) return "Unknown";
+    const d = new Date(dateStr);
+    if (tf === "Weekly") {
+      // ISO week: start from Monday.
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(d);
+      monday.setDate(diff);
+      return monday.toISOString().slice(0, 10);
+    }
+    if (tf === "Monthly") return dateStr.slice(0, 7);
+    if (tf === "Quarterly") {
+      const q = Math.floor(d.getMonth() / 3) + 1;
+      return `${d.getFullYear()}-Q${q}`;
+    }
+    if (tf === "Yearly") return dateStr.slice(0, 4);
+    // Daily (default)
+    return dateStr;
+  }
+
+  const tf = filters?.timeframe ?? "Daily";
+  // Trend: average QA score per bucket.
   const trendMap = new Map<string, { sum: number; n: number }>();
   for (const e of scored) {
     if (!e.evaluation_date) continue;
-    const cur = trendMap.get(e.evaluation_date) ?? { sum: 0, n: 0 };
+    const key = getDateKey(e.evaluation_date, tf);
+    const cur = trendMap.get(key) ?? { sum: 0, n: 0 };
     cur.sum += e.qa_score;
     cur.n += 1;
-    trendMap.set(e.evaluation_date, cur);
+    trendMap.set(key, cur);
   }
   const trendData = [...trendMap.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -272,7 +356,7 @@ export async function getAccountEvaluationAnalytics(
 
   // Pie: evaluation volume allocation by guideline (e.g. PHONE / CHAT / CXL).
   const guidelineMap = new Map<string, number>();
-  for (const e of evaluations) {
+  for (const e of filtered) {
     const key = e.guideline?.trim() || "Unspecified";
     guidelineMap.set(key, (guidelineMap.get(key) ?? 0) + 1);
   }
@@ -302,7 +386,7 @@ export async function getAccountEvaluationAnalytics(
     number,
     { scores: number[]; count: number }
   >();
-  for (const e of evaluations) {
+  for (const e of filtered) {
     if (e.agent_employee_id == null) continue;
     const cur = agentMap.get(e.agent_employee_id) ?? { scores: [], count: 0 };
     cur.count += 1;
@@ -348,7 +432,169 @@ export async function getAccountEvaluationAnalytics(
     barData,
     rankingData,
     agentPerformance,
+    filterOptions: { lobOptions, guidelineOptions },
   };
+}
+
+// Aggregated chart analytics across multiple accounts for the main dashboard.
+export type DashboardChartAnalytics = {
+  trendData: { month: string; score: number }[];
+  barData: { defect: string; count: number }[];
+  avgScore: number | null;
+};
+
+const TREND_MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+// Cached 2 minutes — heavy evaluation aggregation across all accounts.
+export const getDashboardChartAnalytics = unstable_cache(
+  async (accountCodes: string[]): Promise<DashboardChartAnalytics> => {
+  if (accountCodes.length === 0) {
+    return { trendData: [], barData: [], avgScore: null };
+  }
+
+  const supabase = createServerClient();
+
+  // Resolve all account ids from the provided codes.
+  const { data: accounts } = await supabase
+    .from("accounts")
+    .select("account_id, account_code")
+    .in("account_code", accountCodes);
+
+  if (!accounts || accounts.length === 0) {
+    return { trendData: [], barData: [], avgScore: null };
+  }
+
+  const accountIds = accounts.map((a) => a.account_id);
+
+  // Fetch all evaluations for the relevant accounts.
+  const { data, error } = await supabase
+    .from("rm_qa_evaluations")
+    .select(
+      "evaluation_id, account_id, lob_id, qa_score, evaluation_date"
+    )
+    .in("account_id", accountIds)
+    .order("evaluation_date", { ascending: true });
+
+  if (error || !data || data.length === 0) {
+    return { trendData: [], barData: [], avgScore: null };
+  }
+
+  const evaluations = data as {
+    evaluation_id: number;
+    account_id: number;
+    lob_id: number | null;
+    qa_score: number | null;
+    evaluation_date: string | null;
+  }[];
+
+  // Load LOB names for defect distribution labels.
+  const { data: lobs } = await supabase
+    .from("lobs")
+    .select("lob_id, lob_name")
+    .in("account_id", accountIds);
+
+  const lobName = new Map<number, string>(
+    (lobs ?? []).map((l) => [l.lob_id, l.lob_name])
+  );
+
+  const scored = evaluations.filter(
+    (e): e is typeof e & { qa_score: number } => e.qa_score != null
+  );
+
+  // Average score across all scored evaluations.
+  const avgScore =
+    scored.length > 0
+      ? Number(
+          (scored.reduce((s, e) => s + e.qa_score, 0) / scored.length).toFixed(2)
+        )
+      : null;
+
+  // Trend: average QA score per month, grouped by year-month.
+  const monthMap = new Map<string, { sum: number; n: number }>();
+  for (const e of scored) {
+    if (!e.evaluation_date) continue;
+    // Extract YYYY-MM for grouping, then format as "Mon YYYY" label.
+    const parts = e.evaluation_date.split("-");
+    if (parts.length < 2) continue;
+    const key = `${parts[0]}-${parts[1]}`;
+    const cur = monthMap.get(key) ?? { sum: 0, n: 0 };
+    cur.sum += e.qa_score;
+    cur.n += 1;
+    monthMap.set(key, cur);
+  }
+  const trendData = [...monthMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, v]) => {
+      const [, monthPart] = key.split("-");
+      const monthIndex = parseInt(monthPart, 10) - 1;
+      const label = TREND_MONTHS[monthIndex] ?? key;
+      return { month: label, score: Number((v.sum / v.n).toFixed(2)) };
+    });
+
+  // Bar: structural defect distribution = count of below-standard (<90%)
+  // evaluations per LOB across all accounts.
+  const defectMap = new Map<string, number>();
+  for (const e of scored) {
+    if (e.qa_score >= 90) continue;
+    const key =
+      e.lob_id != null ? (lobName.get(e.lob_id) ?? "Unknown") : "Unassigned";
+    defectMap.set(key, (defectMap.get(key) ?? 0) + 1);
+  }
+  const barData = [...defectMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([defect, count]) => ({ defect, count }));
+
+  return { trendData, barData, avgScore };
+  },
+  ["dashboard", "chart-analytics"],
+  { revalidate: 120, tags: ["dashboard", "evaluations"] }
+);
+
+// Returns evaluations for a specific agent within an account, for the roster calendar.
+export type AgentEvaluation = {
+  evaluation_id: number;
+  evaluation_date: string | null;
+  qa_score: number | null;
+  guideline: string | null;
+  lob_id: number | null;
+  agent_employee_id: number | null;
+};
+
+export async function getAgentEvaluations(
+  accountCode: string,
+  agentName: string
+): Promise<AgentEvaluation[]> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+
+  const supabase = createServerClient();
+
+  // Resolve the agent's employee id by name within this account.
+  const { data: agent } = await supabase
+    .from("employees")
+    .select("id")
+    .ilike("employee_name", agentName)
+    .maybeSingle();
+
+  if (!agent) return [];
+
+  const { data, error } = await supabase
+    .from("rm_qa_evaluations")
+    .select(
+      "evaluation_id, evaluation_date, qa_score, guideline, lob_id, agent_employee_id"
+    )
+    .eq("account_id", accountId)
+    .eq("agent_employee_id", agent.id)
+    .order("evaluation_date", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching agent evaluations:", error);
+    return [];
+  }
+  return (data ?? []) as AgentEvaluation[];
 }
 
 // Returns all assignment reporting (supervisor relationships), newest first.

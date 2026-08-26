@@ -1,6 +1,7 @@
 // Employee data access: queries for employees, their account/role/LOB
 // assignments, and aggregated team/dashboard overviews via Supabase.
 
+import { unstable_cache } from "next/cache";
 import { createServerClient } from "@/lib/supabase/server";
 import type {
   AccountKey,
@@ -10,6 +11,11 @@ import type {
   TeamMember,
   UserRole,
 } from "@/types";
+import {
+  getAccountIdByCode,
+  getDashboardChartAnalytics,
+  type DashboardChartAnalytics,
+} from "@/lib/db/quality";
 
 // Roles that are granted manager-level visibility across all accounts.
 const DASHBOARD_MANAGER_ROLES: UserRole[] = [
@@ -44,44 +50,56 @@ export type EnrichedAssignment = {
   lob_name: string | null;
 };
 
-// Loads all accounts from the database.
-async function loadAccounts(): Promise<AccountRow[]> {
-  const supabase = createServerClient();
-  const { data, error } = await supabase
-    .from("accounts")
-    .select("account_id, account_code, account_name");
-  if (error) {
-    console.error("Error loading accounts:", error);
-    return [];
-  }
-  return (data ?? []) as AccountRow[];
-}
+// Loads all accounts from the database (cached 5 min — reference data).
+const loadAccounts = unstable_cache(
+  async (): Promise<AccountRow[]> => {
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+      .from("accounts")
+      .select("account_id, account_code, account_name");
+    if (error) {
+      console.error("Error loading accounts:", error);
+      return [];
+    }
+    return (data ?? []) as AccountRow[];
+  },
+  ["employees", "accounts"],
+  { revalidate: 300, tags: ["db:accounts"] }
+);
 
-// Loads all roles from the database.
-async function loadRoles(): Promise<RoleRow[]> {
-  const supabase = createServerClient();
-  const { data, error } = await supabase
-    .from("roles")
-    .select("role_id, role_name");
-  if (error) {
-    console.error("Error loading roles:", error);
-    return [];
-  }
-  return (data ?? []) as RoleRow[];
-}
+// Loads all roles from the database (cached 5 min — reference data).
+const loadRoles = unstable_cache(
+  async (): Promise<RoleRow[]> => {
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+      .from("roles")
+      .select("role_id, role_name");
+    if (error) {
+      console.error("Error loading roles:", error);
+      return [];
+    }
+    return (data ?? []) as RoleRow[];
+  },
+  ["employees", "roles"],
+  { revalidate: 300, tags: ["db:roles"] }
+);
 
-// Loads all lines of business (LOBs) from the database.
-async function loadLobs(): Promise<{ lob_id: number; lob_name: string }[]> {
-  const supabase = createServerClient();
-  const { data, error } = await supabase
-    .from("lobs")
-    .select("lob_id, lob_name");
-  if (error) {
-    console.error("Error loading lobs:", error);
-    return [];
-  }
-  return (data ?? []) as { lob_id: number; lob_name: string }[];
-}
+// Loads all lines of business (LOBs) from the database (cached 5 min).
+const loadLobs = unstable_cache(
+  async (): Promise<{ lob_id: number; lob_name: string }[]> => {
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+      .from("lobs")
+      .select("lob_id, lob_name");
+    if (error) {
+      console.error("Error loading lobs:", error);
+      return [];
+    }
+    return (data ?? []) as { lob_id: number; lob_name: string }[];
+  },
+  ["employees", "lobs"],
+  { revalidate: 300, tags: ["db:lobs"] }
+);
 
 // Joins a raw assignment row with its role, account, and LOB names.
 function enrichAssignment(
@@ -567,30 +585,65 @@ async function getEnrichedEmployeesByAccount(
 }
 
 // Returns the (deduplicated) agents for an account as performance rows.
+// Uses agent_assignments table to get only assigned agents.
 export async function getAccountAgents(
   accountCode: string
 ): Promise<AgentPerformance[]> {
-  const enriched = await getEnrichedEmployeesByAccount(accountCode);
-  // Tracks ids already emitted so each agent appears only once.
-  const seen = new Set<number>();
-  const result: AgentPerformance[] = [];
-  for (const e of enriched) {
-    if (e.id == null || seen.has(e.id)) continue;
-    seen.add(e.id);
-    result.push({
-      name: e.employee_name ?? "—",
-      score: "—",
-      opportunities: 0,
-    });
-  }
-  return result;
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+
+  const supabase = createServerClient();
+
+  // Fetch all agent_assignments for this account.
+  const { data: assignments, error } = await supabase
+    .from("agent_assignments")
+    .select("agent_employee_id")
+    .eq("account_id", accountId);
+
+  if (error || !assignments || assignments.length === 0) return [];
+
+  // Deduplicate agent employee ids.
+  const agentIds = [...new Set(assignments.map((a) => a.agent_employee_id))];
+
+  // Fetch agent names.
+  const { data: agents } = await supabase
+    .from("employees")
+    .select("id, employee_name")
+    .in("id", agentIds);
+
+  return (agents ?? []).map((a) => ({
+    name: a.employee_name ?? "—",
+    score: "—",
+    opportunities: 0,
+  }));
 }
 
-// Returns the sorted list of QA employee names for an account.
+// Returns the sorted list of QA employee names (coaches + evaluators) for an account.
 export async function getAccountQAs(accountCode: string): Promise<string[]> {
-  const enriched = await getEnrichedEmployeesByAccount(accountCode);
-  return enriched
-    .filter((e) => classifyRole(e.role_name) === "qa")
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+
+  const supabase = createServerClient();
+  const { data: assignments } = await supabase
+    .from("agent_assignments")
+    .select("qa_coach_employee_id, qa_evaluator_employee_id")
+    .eq("account_id", accountId);
+
+  if (!assignments || assignments.length === 0) return [];
+
+  // Collect all unique QA employee ids.
+  const qaIds = new Set<number>();
+  for (const a of assignments) {
+    if (a.qa_coach_employee_id) qaIds.add(a.qa_coach_employee_id);
+    if (a.qa_evaluator_employee_id) qaIds.add(a.qa_evaluator_employee_id);
+  }
+
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, employee_name")
+    .in("id", [...qaIds]);
+
+  return (employees ?? [])
     .map((e) => e.employee_name ?? "")
     .filter(Boolean)
     .sort();
@@ -600,9 +653,25 @@ export async function getAccountQAs(accountCode: string): Promise<string[]> {
 export async function getAccountTeamLeads(
   accountCode: string
 ): Promise<string[]> {
-  const enriched = await getEnrichedEmployeesByAccount(accountCode);
-  return enriched
-    .filter((e) => classifyRole(e.role_name) === "team_lead")
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+
+  const supabase = createServerClient();
+  const { data: assignments } = await supabase
+    .from("agent_assignments")
+    .select("team_lead_employee_id")
+    .eq("account_id", accountId);
+
+  if (!assignments || assignments.length === 0) return [];
+
+  const tlIds = [...new Set(assignments.map((a) => a.team_lead_employee_id))];
+
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, employee_name")
+    .in("id", tlIds);
+
+  return (employees ?? [])
     .map((e) => e.employee_name ?? "")
     .filter(Boolean)
     .sort();
@@ -647,18 +716,60 @@ export type AgentAssignmentRow = {
   status: string;
 };
 
-// Builds the assignment roster rows for an account.
+// Builds the assignment roster rows for an account using the agent_assignments table.
 export async function getAccountAssignmentRows(
   accountCode: string
 ): Promise<AgentAssignmentRow[]> {
-  const enriched = await getEnrichedEmployeesByAccount(accountCode);
-  return enriched.map((e) => ({
-    name: e.employee_name ?? "—",
-    lob: e.lob_name ?? "—",
-    coach: "",
-    evaluator: "",
-    teamLead: "",
-    status: e.status_name ?? "ACTIVE",
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+
+  const supabase = createServerClient();
+
+  // Fetch all agent_assignments for this account.
+  const { data: assignments, error } = await supabase
+    .from("agent_assignments")
+    .select(
+      "assignment_id, agent_employee_id, lob_id, team_lead_employee_id, qa_coach_employee_id, qa_evaluator_employee_id"
+    )
+    .eq("account_id", accountId);
+
+  if (error || !assignments || assignments.length === 0) return [];
+
+  // Collect all unique employee ids (agents + supervisors) to resolve names in one query.
+  const allEmployeeIds = new Set<number>();
+  for (const a of assignments) {
+    allEmployeeIds.add(a.agent_employee_id);
+    allEmployeeIds.add(a.team_lead_employee_id);
+    allEmployeeIds.add(a.qa_coach_employee_id);
+    allEmployeeIds.add(a.qa_evaluator_employee_id);
+  }
+
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, employee_name")
+    .in("id", [...allEmployeeIds]);
+
+  const employeeName = new Map<number, string>(
+    (employees ?? []).map((e) => [e.id, e.employee_name ?? "Unknown"])
+  );
+
+  // Fetch LOB names for this account.
+  const { data: lobs } = await supabase
+    .from("lobs")
+    .select("lob_id, lob_name")
+    .eq("account_id", accountId);
+
+  const lobName = new Map<number, string>(
+    (lobs ?? []).map((l) => [l.lob_id, l.lob_name])
+  );
+
+  return assignments.map((a) => ({
+    name: employeeName.get(a.agent_employee_id) ?? "—",
+    lob: lobName.get(a.lob_id) ?? "—",
+    coach: employeeName.get(a.qa_coach_employee_id) ?? "",
+    evaluator: employeeName.get(a.qa_evaluator_employee_id) ?? "",
+    teamLead: employeeName.get(a.team_lead_employee_id) ?? "",
+    status: "ACTIVE",
   }));
 }
 
@@ -714,6 +825,7 @@ export type DashboardOverview = {
   accounts: AccountSummary[];
   totalAgents: number;
   totalQAs: number;
+  charts: DashboardChartAnalytics;
 };
 
 /**
@@ -721,31 +833,37 @@ export type DashboardOverview = {
  * Managers (and admins) see all accounts; everyone else sees only the
  * accounts they are assigned to. Counts are pulled live from the employee
  * assignment data so the dashboard reflects the real team structure.
+ * Cached for 2 minutes to avoid redundant Supabase queries on navigation.
  */
-export async function getDashboardOverview(
-  user: AuthUser
-): Promise<DashboardOverview> {
-  const isManager =
-    DASHBOARD_MANAGER_ROLES.includes(user.role) || user.role === "admin";
+export const getDashboardOverview = unstable_cache(
+  async (user: AuthUser): Promise<DashboardOverview> => {
+    const isManager =
+      DASHBOARD_MANAGER_ROLES.includes(user.role) || user.role === "admin";
 
-  const accountCodes = isManager
-    ? (await getAccounts()).map((a) => a.account_code)
-    : (user.accounts ?? []).map((a) => a.account);
+    const accountCodes = isManager
+      ? (await getAccounts()).map((a) => a.account_code)
+      : (user.accounts ?? []).map((a) => a.account);
 
-  const accounts = await Promise.all(
-    accountCodes.map(async (code) => {
-      const overview = await getAccountTeamOverview(code);
-      return {
-        account: code.toUpperCase() as AccountLabel,
-        accountKey: code.toLowerCase() as AccountKey,
-        agents: overview.agents,
-        qaCount: overview.qaCount,
-      };
-    })
-  );
+    const accounts = await Promise.all(
+      accountCodes.map(async (code) => {
+        const overview = await getAccountTeamOverview(code);
+        return {
+          account: code.toUpperCase() as AccountLabel,
+          accountKey: code.toLowerCase() as AccountKey,
+          agents: overview.agents,
+          qaCount: overview.qaCount,
+        };
+      })
+    );
 
-  const totalAgents = accounts.reduce((sum, a) => sum + a.agents, 0);
-  const totalQAs = accounts.reduce((sum, a) => sum + a.qaCount, 0);
+    const totalAgents = accounts.reduce((sum, a) => sum + a.agents, 0);
+    const totalQAs = accounts.reduce((sum, a) => sum + a.qaCount, 0);
 
-  return { isManager, accounts, totalAgents, totalQAs };
-}
+    // Fetch real chart analytics across all visible accounts.
+    const charts = await getDashboardChartAnalytics(accountCodes);
+
+    return { isManager, accounts, totalAgents, totalQAs, charts };
+  },
+  ["dashboard", "overview"],
+  { revalidate: 120, tags: ["dashboard"] }
+);

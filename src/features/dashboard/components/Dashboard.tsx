@@ -1,6 +1,6 @@
 "use client";
 
-// Operator dashboard: profile, summary stats, and sample analytics charts.
+// Operator dashboard: profile, summary stats, and analytics charts.
 import { useEffect, useRef, useState } from "react";
 import {
   Area,
@@ -36,26 +36,9 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { getAccentColors } from "@/features/accounts/config";
 import AvatarCropModal from "@/components/ui/avatar-crop-modal";
 import { useAccent, useAccentHex } from "@/features/settings/useAccent";
+import { createBrowserClient } from "@/lib/supabase/client";
 import type { AuthUser } from "@/types";
 import type { DashboardOverview } from "@/lib/db/employees";
-
-// Temporary, hard-coded analytics placeholders. Replace with real queries
-// (e.g. an `evaluations` table) once the data source exists.
-const TREND_DATA = [
-  { month: "Jan", score: 92 },
-  { month: "Feb", score: 94 },
-  { month: "Mar", score: 91 },
-  { month: "Apr", score: 95 },
-  { month: "May", score: 96 },
-  { month: "Jun", score: 94 },
-];
-
-// Hard-coded defect distribution placeholder data.
-const DEFECT_DATA = [
-  { defect: "Critical", count: 12 },
-  { defect: "Major", count: 28 },
-  { defect: "Minor", count: 45 },
-];
 
 // Main operator dashboard: profile card, stats, and analytics sections.
 export default function Dashboard({
@@ -66,6 +49,9 @@ export default function Dashboard({
   overview: DashboardOverview;
 }) {
   const { updateUser } = useAuth();
+  // Live overview state — updated via Supabase Realtime.
+  const [liveOverview, setLiveOverview] =
+    useState<DashboardOverview>(overview);
   // Hidden file input ref used to trigger the avatar file picker.
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Currently displayed avatar URL (overridden by the cropped upload).
@@ -89,6 +75,31 @@ export default function Dashboard({
     return () => clearInterval(timer);
   }, []);
 
+  // Supabase Realtime: listen for changes on rm_qa_evaluations
+  // and re-fetch the dashboard overview so charts stay live.
+  useEffect(() => {
+    const supabase = createBrowserClient();
+    const channel = supabase
+      .channel("dashboard-evaluations")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "rm_qa_evaluations" },
+        () => {
+          fetch("/api/dashboard")
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.overview) setLiveOverview(data.overview);
+            })
+            .catch(console.error);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   // Full human-readable "last accessed" label used for the tooltip.
   const lastAccessedLabel = `Last accessed ${now.toLocaleDateString()} at ${now.toLocaleTimeString()}`;
 
@@ -107,7 +118,7 @@ export default function Dashboard({
   const accentHex = useAccentHex();
   const a = getAccentColors(selectedAccent);
   // Switch the welcome copy based on whether the user is a manager.
-  const useManagerDashboard = overview.isManager;
+  const useManagerDashboard = liveOverview.isManager;
 
   const displayedAvatar = avatarImage ?? user?.avatar_url ?? null;
 
@@ -152,17 +163,17 @@ export default function Dashboard({
   const stats = [
     {
       label: "Total Accounts",
-      value: overview.accounts.length,
+      value: liveOverview.accounts.length,
       icon: Zap,
     },
     {
       label: "Total Agents",
-      value: overview.totalAgents,
+      value: liveOverview.totalAgents,
       icon: UsersRound,
     },
     {
       label: "Total QAs",
-      value: overview.totalQAs,
+      value: liveOverview.totalQAs,
       icon: ShieldCheck,
     },
   ];
@@ -287,9 +298,6 @@ export default function Dashboard({
             >
               Analytics
             </h2>
-            <span className="rounded-full bg-surface-raised px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-              Sample data
-            </span>
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -310,7 +318,9 @@ export default function Dashboard({
                     Avg
                   </span>
                   <span className={`block text-sm font-bold ${a.text}`}>
-                    94%
+                    {liveOverview.charts.avgScore != null
+                      ? `${liveOverview.charts.avgScore.toFixed(1)}%`
+                      : "--"}
                   </span>
                 </div>
               </CardHeader>
@@ -320,7 +330,7 @@ export default function Dashboard({
                   className="h-[220px] w-full"
                 >
                   <AreaChart
-                    data={TREND_DATA}
+                    data={liveOverview.charts.trendData}
                     margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
                   >
                     <defs>
@@ -412,7 +422,7 @@ export default function Dashboard({
                   className="h-[220px] w-full"
                 >
                   <BarChart
-                    data={DEFECT_DATA}
+                    data={liveOverview.charts.barData}
                     margin={{ top: 5, right: 10, left: -10, bottom: 0 }}
                   >
                     <CartesianGrid

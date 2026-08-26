@@ -47,6 +47,7 @@ export default async function AccountAnalyticsPage({
       pieData={analytics.pieData}
       barData={analytics.barData}
       rankingData={analytics.rankingData}
+      filterOptions={analytics.filterOptions}
     />
   );
 }
