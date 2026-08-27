@@ -140,7 +140,14 @@ export default function LoginPage() {
   // Holds the entered password value.
   const [password, setPassword] = useState("");
   // Holds an inline auth error message to display to the user.
-  const [error, setError] = useState("");
+  // Holds an inline auth error message to display to the user. Initialised from
+  // the URL (e.g. after a failed Google sign-in where the email isn't
+  // registered) without triggering a cascading render in an effect.
+  const [error, setError] = useState(() =>
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("error") ?? ""
+      : ""
+  );
   // True while a credential login request is in flight (disables inputs).
   const [submitting, setSubmitting] = useState(false);
   // True while the Google OAuth redirect is being initiated.
@@ -168,14 +175,13 @@ export default function LoginPage() {
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
-  // Surface errors returned in the URL (e.g. after a failed Google sign-in
-  // where the email isn't registered), then clean the param so a refresh
-  // doesn't re-show it.
+  // Clean the error param from the URL (read into state above) so a refresh
+  // doesn't re-show it. No state updates happen here.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlError = params.get("error");
-    if (urlError) {
-      setError(urlError);
+    if (
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("error")
+    ) {
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.delete("error");
       window.history.replaceState({}, "", cleanUrl.toString());

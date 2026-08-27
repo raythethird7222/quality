@@ -727,6 +727,14 @@ export type AgentAssignmentRow = {
   evaluator: string;
   teamLead: string;
   status: string;
+  // Identifiers used by the editable assignment table (kept optional so the
+  // display-only consumers, e.g. the dashboard, are unaffected).
+  assignmentId?: number;
+  agentId?: number;
+  lobId?: number;
+  coachId?: number | null;
+  evaluatorId?: number | null;
+  teamLeadId?: number | null;
 };
 
 // Builds the assignment roster rows for an account using the agent_assignments table.
@@ -792,6 +800,12 @@ export async function getAccountAssignmentRows(
     evaluator: employeeName.get(a.qa_evaluator_employee_id) ?? "",
     teamLead: employeeName.get(a.team_lead_employee_id) ?? "",
     status: "ACTIVE",
+    assignmentId: a.assignment_id,
+    agentId: a.agent_employee_id,
+    lobId: a.lob_id,
+    coachId: a.qa_coach_employee_id ?? null,
+    evaluatorId: a.qa_evaluator_employee_id ?? null,
+    teamLeadId: a.team_lead_employee_id ?? null,
   }));
 }
 

@@ -5,25 +5,32 @@ import { useState } from "react";
 import { ChevronDown, Save, UserPlus, X } from "lucide-react";
 import { getAccentColors } from "@/features/accounts/config";
 import type { Accent } from "@/types";
+import type { IdNameOption } from "@/lib/db/assignments";
+
+// Payload emitted when a new agent is saved.
+export type NewAgentPayload = {
+  agent: {
+    employeeCode: string;
+    employeeName: string;
+    employeeEmail: string;
+    hireDate: string;
+    status: "ACTIVE" | "INACTIVE";
+  };
+  lobId: number;
+  coachId: number | null;
+  evaluatorId: number | null;
+  teamLeadId: number | null;
+};
 
 // Props for the Add Agent modal: open state, save handler, and select options.
 type AddAgentModalProps = {
   open: boolean;
   onClose: () => void;
-  onSave: (agent: {
-    id: string;
-    name: string;
-    email: string;
-    hireDate: string;
-    lob: string;
-    coach: string;
-    evaluator: string;
-    teamLead: string;
-    status: string;
-  }) => void;
+  onSave: (payload: NewAgentPayload) => void;
   accent: Accent;
-  qaList: string[];
-  teamLeads?: string[];
+  people: IdNameOption[];
+  lobs: IdNameOption[];
+  teamLeads: IdNameOption[];
 };
 
 // Add Agent modal: collects agent details and emits a new agent on save.
@@ -32,49 +39,55 @@ export default function AddAgentModal({
   onClose,
   onSave,
   accent,
-  qaList,
-  teamLeads = [],
+  people,
+  lobs,
+  teamLeads,
 }: AddAgentModalProps) {
-  // Resolve accent color tokens for buttons and icons.
   const a = getAccentColors(accent);
-  // Form field state for the new agent being created.
-  const [id, setId] = useState("");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [employeeName, setEmployeeName] = useState("");
+  const [employeeEmail, setEmployeeEmail] = useState("");
   const [hireDate, setHireDate] = useState("");
-  const [lob, setLob] = useState("CXL");
-  const [coach, setCoach] = useState("");
-  const [evaluator, setEvaluator] = useState("");
-  const [teamLead, setTeamLead] = useState("");
-  const [status, setStatus] = useState("ACTIVE");
+  const [lobId, setLobId] = useState<number>(lobs[0]?.id ?? 0);
+  const [coachId, setCoachId] = useState<number | null>(null);
+  const [evaluatorId, setEvaluatorId] = useState<number | null>(null);
+  const [teamLeadId, setTeamLeadId] = useState<number | null>(null);
+  const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
+
+  function reset() {
+    setEmployeeCode("");
+    setEmployeeName("");
+    setEmployeeEmail("");
+    setHireDate("");
+    setLobId(lobs[0]?.id ?? 0);
+    setCoachId(null);
+    setEvaluatorId(null);
+    setTeamLeadId(null);
+    setStatus("ACTIVE");
+  }
 
   // Builds the agent payload, resets the form, and closes the modal.
   function handleSave() {
     onSave({
-      id,
-      name,
-      email,
-      hireDate,
-      lob,
-      coach,
-      evaluator,
-      teamLead,
-      status,
+      agent: {
+        employeeCode: employeeCode.trim(),
+        employeeName: employeeName.trim(),
+        employeeEmail: employeeEmail.trim(),
+        hireDate,
+        status,
+      },
+      lobId,
+      coachId,
+      evaluatorId,
+      teamLeadId,
     });
-    setId("");
-    setName("");
-    setEmail("");
-    setHireDate("");
-    setLob("CXL");
-    setCoach("");
-    setEvaluator("");
-    setTeamLead("");
-    setStatus("ACTIVE");
+    reset();
     onClose();
   }
 
-  // Render nothing when the modal is closed.
   if (!open) return null;
+
+  const personOptions = [{ id: 0, name: "Unassigned" }, ...people];
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
@@ -82,14 +95,10 @@ export default function AddAgentModal({
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
       />
-
       <div className="relative mx-4 w-full max-w-[560px] rounded-2xl border border-border-default bg-card shadow-2xl">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-border-subtle px-6 py-4">
           <h2 className="flex items-center gap-2.5 text-[16px] font-bold text-text-primary">
-            <span
-              className={`grid h-9 w-9 place-items-center rounded-lg ${a.bgLight}`}
-            >
+            <span className={`grid h-9 w-9 place-items-center rounded-lg ${a.bgLight}`}>
               <UserPlus size={18} className={a.text} />
             </span>
             Add New Agent
@@ -102,94 +111,92 @@ export default function AddAgentModal({
           </button>
         </div>
 
-        {/* Form Body */}
         <div className="px-6 py-5">
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Employee code">
+            <Field label="Employee code">
               <input
                 type="text"
-                value={id}
-                onChange={(e) => setId(e.target.value)}
+                value={employeeCode}
+                onChange={(e) => setEmployeeCode(e.target.value)}
                 placeholder="Enter employee code"
                 className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
               />
-            </FormField>
+            </Field>
 
-            <FormField label="Employee Name">
+            <Field label="Employee Name">
               <input
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={employeeName}
+                onChange={(e) => setEmployeeName(e.target.value)}
                 placeholder="Enter full name"
                 className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
               />
-            </FormField>
+            </Field>
 
-            <FormField label="Employee Email">
+            <Field label="Employee Email">
               <input
                 type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={employeeEmail}
+                onChange={(e) => setEmployeeEmail(e.target.value)}
                 placeholder="Enter email address"
                 className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:border-border-accent focus:ring-1 focus:ring-border-accent"
               />
-            </FormField>
+            </Field>
 
-            <FormField label="Hire Date">
+            <Field label="Hire Date">
               <input
                 type="date"
                 value={hireDate}
                 onChange={(e) => setHireDate(e.target.value)}
                 className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition focus:border-border-accent focus:ring-1 focus:ring-border-accent"
               />
-            </FormField>
+            </Field>
 
-            <FormField label="LOB">
+            <Field label="LOB">
               <SelectField
-                value={lob}
-                onChange={setLob}
-                options={["CXL", "NEGOT"]}
+                value={lobId}
+                onChange={(v) => setLobId(Number(v))}
+                options={lobs}
               />
-            </FormField>
+            </Field>
 
-            <FormField label="QA Coach">
+            <Field label="QA Coach">
               <SelectField
-                value={coach}
-                onChange={setCoach}
-                options={["", ...qaList]}
-                placeholder="Unassigned"
+                value={coachId ?? 0}
+                onChange={(v) => setCoachId(Number(v) || null)}
+                options={personOptions}
               />
-            </FormField>
+            </Field>
 
-            <FormField label="QA Evaluator">
+            <Field label="QA Evaluator">
               <SelectField
-                value={evaluator}
-                onChange={setEvaluator}
-                options={["", ...qaList]}
-                placeholder="Unassigned"
+                value={evaluatorId ?? 0}
+                onChange={(v) => setEvaluatorId(Number(v) || null)}
+                options={personOptions}
               />
-            </FormField>
+            </Field>
 
-            <FormField label="Team Lead">
+            <Field label="Team Lead">
               <SelectField
-                value={teamLead}
-                onChange={setTeamLead}
-                options={["", ...teamLeads]}
-                placeholder="Unassigned"
+                value={teamLeadId ?? 0}
+                onChange={(v) => setTeamLeadId(Number(v) || null)}
+                options={teamLeads}
               />
-            </FormField>
+            </Field>
 
-            <FormField label="Status">
+            <Field label="Status">
               <SelectField
                 value={status}
-                onChange={setStatus}
-                options={["ACTIVE", "INACTIVE"]}
+                onChange={(v) => setStatus(v as "ACTIVE" | "INACTIVE")}
+                options={[
+                  { id: "ACTIVE", name: "ACTIVE" },
+                  { id: "INACTIVE", name: "INACTIVE" },
+                ]}
               />
-            </FormField>
+            </Field>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-3 border-t border-border-subtle px-6 py-4">
           <button
             onClick={onClose}
@@ -211,7 +218,7 @@ export default function AddAgentModal({
 }
 
 // Layout helper that renders a labelled form field wrapper.
-function FormField({
+function Field({
   label,
   children,
 }: {
@@ -228,17 +235,15 @@ function FormField({
   );
 }
 
-// Styled select input with a chevron and optional placeholder option.
+// Styled select input with a chevron, driven by id + name options.
 function SelectField({
   value,
   onChange,
   options,
-  placeholder,
 }: {
-  value: string;
+  value: number | string;
   onChange: (v: string) => void;
-  options: string[];
-  placeholder?: string;
+  options: IdNameOption[] | { id: string | number; name: string }[];
 }) {
   return (
     <div className="relative">
@@ -247,14 +252,11 @@ function SelectField({
         onChange={(e) => onChange(e.target.value)}
         className="w-full appearance-none rounded-lg border border-border-default bg-card py-2 pl-3 pr-8 text-[13px] text-text-primary outline-none transition focus:border-border-accent focus:ring-1 focus:ring-border-accent"
       >
-        {placeholder && <option value="">{placeholder}</option>}
-        {options
-          .filter(Boolean)
-          .map((opt) => (
-            <option key={opt} value={opt}>
-              {opt}
-            </option>
-          ))}
+        {options.map((opt) => (
+          <option key={String(opt.id)} value={String(opt.id)}>
+            {opt.name}
+          </option>
+        ))}
       </select>
       <ChevronDown
         size={14}

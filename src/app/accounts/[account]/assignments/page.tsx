@@ -1,12 +1,12 @@
 // Server page rendering the QA assignment settings for an account.
-import { getAccount, isValidAccount } from "@/features/accounts/config";
+import { isValidAccount } from "@/features/accounts/config";
 import { requireAuth } from "@/lib/auth";
 import {
-  getAccountLobNames,
-  getAccountQAs,
-  getAccountAssignmentRows,
+  getAccountPeople,
+  getAccountLobs,
   getAccountTeamLeads,
-} from "@/lib/db/employees";
+  getAccountAssignmentRowsWithIds,
+} from "@/lib/db/assignments";
 import AssignmentSettingsView from "@/features/assignments/components/AssignmentSettingsView";
 
 export default async function AccountAssignmentsPage({
@@ -32,25 +32,19 @@ export default async function AccountAssignmentsPage({
   }
 
   const user = await requireAuth();
-  const config = getAccount(account);
 
-  const [
-    qaList,
-    lobOptions,
-    agentRows,
-    teamLeads,
-  ] = await Promise.all([
-    getAccountQAs(account),
-    getAccountLobNames(account),
-    getAccountAssignmentRows(account, user),
+  const [people, lobs, teamLeads, agentRows] = await Promise.all([
+    getAccountPeople(account),
+    getAccountLobs(account),
     getAccountTeamLeads(account),
+    getAccountAssignmentRowsWithIds(account, user),
   ]);
 
   return (
     <AssignmentSettingsView
-      account={config.label}
-      qaList={qaList}
-      lobOptions={lobOptions}
+      account={account}
+      people={people}
+      lobs={lobs}
       teamLeads={teamLeads}
       initialAgents={agentRows}
     />

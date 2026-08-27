@@ -1,16 +1,28 @@
 "use client";
 
-// Sidebar: primary navigation with top-level links and per-account entries.
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LogOut, Settings, X } from "lucide-react";
+import {
+  LayoutDashboard,
+  LogOut,
+  Settings,
+  X,
+  Menu,
+  ChevronLeft,
+} from "lucide-react";
+import { useState } from "react";
+
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { ACCOUNTS } from "@/features/accounts/config";
-import { getInitials } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { getInitials, cn } from "@/lib/utils";
+import { useAccent, useThemeDesign } from "@/features/settings/useAccent";
+import { useTheme } from "@/components/ui/ThemeProvider";
 import type { AccountKey, UserRole } from "@/types";
 
-// Shape of a navigation entry, including the roles allowed to see it.
+// ============================================================
+// TYPES
+// ============================================================
+
 type NavItem = {
   href: string;
   label: string;
@@ -18,7 +30,10 @@ type NavItem = {
   roles: UserRole[];
 };
 
-// Every role in the system; used to gate the always-available top-level links.
+// ============================================================
+// ROLES
+// ============================================================
+
 const ALL_ROLES: UserRole[] = [
   "admin",
   "quality_coordinator",
@@ -29,19 +44,35 @@ const ALL_ROLES: UserRole[] = [
   "agent",
 ];
 
-// Top-level navigation shown for every authenticated role.
-const TOP_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ALL_ROLES },
-  { href: "/settings", label: "Settings", icon: Settings, roles: ALL_ROLES },
-];
-
 const MANAGER_ROLES: UserRole[] = [
   "account_manager",
   "qa_supervisor",
   "quality_coordinator",
 ];
 
-// Renders the responsive sidebar with role-aware links and account list.
+// ============================================================
+// TOP NAVIGATION
+// ============================================================
+
+const TOP_NAV: NavItem[] = [
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    roles: ALL_ROLES,
+  },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: Settings,
+    roles: ALL_ROLES,
+  },
+];
+
+// ============================================================
+// SIDEBAR
+// ============================================================
+
 export default function Sidebar({
   open,
   onClose,
@@ -51,22 +82,37 @@ export default function Sidebar({
 }) {
   const pathname = usePathname();
   const { user, requestLogout } = useAuth();
+  const { resolvedTheme } = useTheme();
+  const accent = useAccent();
+  const themeDesign = useThemeDesign();
+
+  const [collapsed, setCollapsed] = useState(false);
 
   if (!user || pathname === "/login") return null;
 
   const role = user.role;
-  // Managers and admins see all accounts; others see only their assignments.
-  const isManager = MANAGER_ROLES.includes(role) || role === "admin";
 
-  // Builds the account list: all accounts for managers, assigned ones for agents.
-  const accounts: { key: AccountKey; label: string; href: string }[] = isManager
-    ? (Object.keys(ACCOUNTS) as AccountKey[]).map((key) => ({
+  // ============================================================
+  // ACCOUNT ACCESS
+  // ============================================================
+
+  const isManager =
+    MANAGER_ROLES.includes(role) || role === "admin";
+
+  const accounts: {
+    key: AccountKey;
+    label: string;
+    href: string;
+  }[] = isManager
+      ? (Object.keys(ACCOUNTS) as AccountKey[]).map((key) => ({
         key,
         label: ACCOUNTS[key].label,
         href: `/accounts/${key}`,
       }))
-    : (user.accounts ?? []).map((assignment) => {
-        const key = assignment.account.toLowerCase() as AccountKey;
+      : (user.accounts ?? []).map((assignment) => {
+        const key =
+          assignment.account.toLowerCase() as AccountKey;
+
         return {
           key,
           label: assignment.account,
@@ -74,107 +120,279 @@ export default function Sidebar({
         };
       });
 
-  // Filters top-level nav down to items permitted for the current role.
-  const topItems = TOP_NAV.filter((item) => item.roles.includes(role));
+  const topItems = TOP_NAV.filter((item) =>
+    item.roles.includes(role)
+  );
 
-  // Determines whether a top-level link matches the current route.
+  // ============================================================
+  // ACTIVE STATE
+  // ============================================================
+
   const isActive = (href: string) =>
     pathname === href ||
     (href !== "/dashboard" && pathname.startsWith(href));
 
-  // Determines whether an account link matches the current route.
   const isAccountActive = (key: AccountKey) =>
     pathname.startsWith(`/accounts/${key}`);
 
-  // Initials shown in the avatar fallback when no photo is present.
-  const initials = getInitials(user.employee_name ?? "QA");
+  // ============================================================
+  // USER
+  // ============================================================
+
+  const initials = getInitials(
+    user.employee_name ?? "QA"
+  );
+
+  // ============================================================
+  // ACCOUNT INITIALS
+  // ============================================================
+
+  const getAccountInitials = (label: string) => {
+    const clean = label.trim();
+
+    // Prefer first two characters for account names such as RM,
+    // JS, BF, etc.
+    return clean.slice(0, 3).toUpperCase();
+  };
+
+  // ============================================================
+  // ACTIONS
+  // ============================================================
+
+  const handleLogout = () => {
+    onClose();
+    requestLogout();
+  };
+
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   return (
     <>
+      {/* ======================================================
+          MOBILE BACKDROP
+      ====================================================== */}
+
       {open && (
-        // Mobile backdrop that closes the sidebar when tapped.
         <div
           className="fixed inset-0 z-40 bg-black/40 md:hidden"
           onClick={onClose}
           aria-hidden="true"
         />
       )}
+
+      {/* ======================================================
+          SIDEBAR
+      ====================================================== */}
+
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-white/20 transition-transform duration-200 md:static md:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-white/20 transition-all duration-300 ease-in-out md:static md:translate-x-0",
+          collapsed ? "w-20" : "w-64",
           open ? "translate-x-0" : "-translate-x-full"
         )}
-        style={{ backgroundColor: "var(--app-accent)" }}
+        style={{
+          backgroundColor: "var(--app-accent)",
+        }}
         aria-label="Primary navigation"
       >
-        <div className="flex h-20 items-center justify-end border-b border-white/20 px-5">
+        {/* ==================================================
+            HEADER
+        ================================================== */}
+
+        <div
+          className={cn(
+            "relative flex h-20 shrink-0 items-center border-b border-white/20",
+            collapsed
+              ? "justify-center px-2"
+              : "justify-between px-3"
+          )}
+        >
+          {/* LOGO — LEFT */}
+
+          {!collapsed && (
+            <img
+              src="/logo_dark_mode.png"
+              alt="QA-REY Logo (Dark Mode)"
+              className="hidden h-24 w-24 object-contain dark:block"
+            />
+          )}
+          {!collapsed && (
+            <img
+              src="/logo.png"
+              alt="QA-REY Logo (Light Mode)"
+              className="block h-24 w-24 object-contain dark:hidden"
+            />
+          )}
+
+          {/* BURGER — RIGHT */}
+
+          <button
+            onClick={() => setCollapsed((prev) => !prev)}
+            aria-label={
+              collapsed
+                ? "Expand sidebar"
+                : "Collapse sidebar"
+            }
+            title={
+              collapsed
+                ? "Expand sidebar"
+                : "Collapse sidebar"
+            }
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[var(--app-accent-contrast)] transition-colors hover:bg-white/10",
+              collapsed
+                ? "md:flex"
+                : "ml-auto"
+            )}
+          >
+            {collapsed ? (
+              <Menu className="h-6 w-6" />
+            ) : (
+              <Menu className="h-6 w-6" />
+            )}
+          </button>
+
+          {/* MOBILE CLOSE */}
+
           <button
             onClick={onClose}
             aria-label="Close navigation"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/20 bg-white/10 text-[var(--app-accent-contrast)] transition-colors hover:bg-white/20 md:hidden"
+            className="absolute right-3 flex h-9 w-9 items-center justify-center rounded-md text-[var(--app-accent-contrast)] transition-colors hover:bg-white/10 md:hidden"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-          {/* Top-level navigation links (Dashboard, Settings). */}
+        {/* ==================================================
+            NAVIGATION
+        ================================================== */}
+
+        <nav
+          className={cn(
+            "flex-1 overflow-y-auto py-4",
+            collapsed ? "px-2" : "px-3"
+          )}
+        >
+          {/* ==================================================
+              MAIN NAV
+          ================================================== */}
+
           <div className="space-y-1">
             {topItems.map((item) => {
               const active = isActive(item.href);
               const Icon = item.icon;
+
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={onClose}
-                  aria-current={active ? "page" : undefined}
+                  aria-current={
+                    active ? "page" : undefined
+                  }
+                  title={
+                    collapsed
+                      ? item.label
+                      : undefined
+                  }
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    "flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
+                    collapsed
+                      ? "justify-center px-2"
+                      : "gap-3 px-3",
                     active
                       ? "opacity-100"
                       : "text-[var(--app-accent-contrast)] opacity-80 hover:bg-white/10 hover:opacity-100"
                   )}
                   style={
                     active
-                      ? { backgroundColor: "var(--app-accent-contrast)", color: "var(--app-accent)" }
+                      ? {
+                        backgroundColor:
+                          "var(--app-accent-contrast)",
+                        color:
+                          "var(--app-accent)",
+                      }
                       : undefined
                   }
                 >
-                  <Icon className="h-5 w-5" aria-hidden="true" />
-                  <span>{item.label}</span>
+                  <Icon
+                    className="h-5 w-5 shrink-0"
+                    aria-hidden="true"
+                  />
+
+                  {!collapsed && (
+                    <span>{item.label}</span>
+                  )}
                 </Link>
               );
             })}
           </div>
 
+          {/* ==================================================
+              ACCOUNTS
+          ================================================== */}
+
           {accounts.length > 0 && (
-            // Per-account navigation group.
-            <div className="space-y-1">
-              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--app-accent-contrast)] opacity-70">
-                Accounts
-              </p>
+            <div className="mt-6 space-y-1">
+              {/* SECTION TITLE */}
+
+              {!collapsed && (
+                <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--app-accent-contrast)] opacity-70">
+                  Accounts
+                </p>
+              )}
+
+              {/* ACCOUNT LINKS */}
+
+              {/* ACCOUNT LINKS */}
+
               {accounts.map((account) => {
                 const active = isAccountActive(account.key);
+
+                const accountInitials =
+                  getAccountInitials(account.label);
+
                 return (
                   <Link
                     key={account.key}
                     href={account.href}
                     onClick={onClose}
                     aria-current={active ? "page" : undefined}
+                    title={collapsed ? account.label : undefined}
                     className={cn(
-                      "ml-3 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                      "flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
+                      collapsed
+                        ? "justify-center px-2"
+                        : "ml-3 px-3",
                       active
                         ? "opacity-100"
                         : "text-[var(--app-accent-contrast)] opacity-80 hover:bg-white/10 hover:opacity-100"
                     )}
                     style={
                       active
-                        ? { backgroundColor: "var(--app-accent-contrast)", color: "var(--app-accent)" }
+                        ? {
+                          backgroundColor:
+                            "var(--app-accent-contrast)",
+                          color: "var(--app-accent)",
+                        }
                         : undefined
                     }
                   >
-                    <span className="truncate">{account.label}</span>
+                    {/* COLLAPSED: SHOW INITIALS */}
+                    {collapsed && (
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-semibold">
+                        {accountInitials}
+                      </span>
+                    )}
+
+                    {/* EXPANDED: SHOW ACCOUNT NAME ONLY */}
+                    {!collapsed && (
+                      <span className="truncate">
+                        {account.label}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -182,35 +400,59 @@ export default function Sidebar({
           )}
         </nav>
 
-        {/* Footer profile strip with avatar, name/role, and logout. */}
-        <div className="border-t border-white/20 p-3">
-          <div className="flex items-center gap-3 rounded-lg px-3 py-2">
-            {user?.avatar_url ? (
-              // eslint-disable-next-line @next/next/no-img-element -- Stored profile photo
+        {/* ==================================================
+            USER FOOTER
+        ================================================== */}
+
+        <div
+          className={cn(
+            "shrink-0 border-t border-white/20 p-3",
+            collapsed && "px-2"
+          )}
+        >
+          <div
+            className={cn(
+              "flex items-center rounded-lg py-2",
+              collapsed
+                ? "flex-col gap-3"
+                : "gap-3 px-3"
+            )}
+          >
+            {/* AVATAR */}
+
+            {user.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
-                className="h-9 w-9 rounded-full object-cover"
+                className="h-9 w-9 shrink-0 rounded-full object-cover"
                 src={user.avatar_url}
-                alt="QA Avatar Element"
+                alt="User Avatar"
               />
             ) : (
-              <span className="grid h-9 w-9 place-items-center rounded-full bg-white/15 text-[13px] font-bold text-[var(--app-accent-contrast)]">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/15 text-[13px] font-bold text-[var(--app-accent-contrast)]">
                 {initials}
               </span>
             )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-[var(--app-accent-contrast)]">
-                {user?.employee_name ?? ""}
-              </p>
-              <p className="truncate text-xs text-[var(--app-accent-contrast)] opacity-70">
-                {user?.role_name ?? ""}
-              </p>
-            </div>
+
+            {/* USER INFO */}
+
+            {!collapsed && (
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-[var(--app-accent-contrast)]">
+                  {user.employee_name ?? ""}
+                </p>
+
+                <p className="truncate text-xs text-[var(--app-accent-contrast)] opacity-70">
+                  {user.role_name ?? ""}
+                </p>
+              </div>
+            )}
+
+            {/* LOGOUT */}
+
             <button
-              onClick={() => {
-                onClose();
-                requestLogout();
-              }}
+              onClick={handleLogout}
               aria-label="Logout"
+              title="Logout"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--app-accent-contrast)] opacity-70 transition-colors hover:bg-white/10 hover:opacity-100"
             >
               <LogOut className="h-4 w-4" />

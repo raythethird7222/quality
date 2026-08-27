@@ -9,6 +9,7 @@ import {
   useState,
   useRef,
 } from "react";
+import type { Accent } from "@/types";
 
 // Supported theme modes and the context value contract.
 type Theme = "light" | "dark" | "system";
@@ -66,18 +67,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme, mounted]);
 
   useEffect(() => {
-    if (!mounted || theme !== "system") return;
+    if (!mounted) return;
 
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = () => {
-      const resolved = resolveTheme("system");
-      setResolvedTheme(resolved);
-      document.documentElement.classList.toggle("dark", resolved === "dark");
-    };
-
-    mediaQuery.addEventListener("change", handleChange);
-    return () => mediaQuery.removeEventListener("change", handleChange);
-  }, [theme, mounted]);
+    const storedAccent = localStorage.getItem("app-accent") as Accent | null;
+    document.documentElement.dataset.accent = storedAccent ?? "indigo";
+  }, [mounted]);
 
   // Public setter that updates the theme state (effect syncs the DOM).
   function setTheme(newTheme: Theme) {

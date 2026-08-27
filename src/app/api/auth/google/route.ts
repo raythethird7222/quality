@@ -49,6 +49,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (user.role === "agent") {
+      return NextResponse.json(
+        { success: false, error: "Invalid email or employee code" },
+        { status: 401 }
+      );
+    }
+
     // Build the success response and attach the auth cookie.
     const response = NextResponse.json({ success: true, user });
 

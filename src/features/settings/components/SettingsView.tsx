@@ -4,8 +4,7 @@
 // and account preferences, backed by local persistence and the auth context.
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   Bell,
   Check,
@@ -46,7 +45,6 @@ const TABS: { key: TabKey; label: string; icon: typeof UserIcon }[] = [
 // active panel based on the selected section.
 export default function SettingsView() {
   const { user, requestLogout } = useAuth();
-  const router = useRouter();
   // Tracks the currently selected settings section.
   const [tab, setTab] = useState<TabKey>("appearance");
 
@@ -122,35 +120,44 @@ export default function SettingsView() {
 // persisting selections to localStorage and the document attributes.
 function AppearancePanel() {
   const { theme, setTheme, resolvedTheme } = useTheme();
-  // Currently selected accent, mirrored from localStorage on mount.
-  const [accent, setAccentState] = useState<Accent>("indigo");
-  // Active preset design id, or null when no preset is applied.
-  const [themeDesign, setThemeDesignState] = useState<ThemeDesignId | null>(null);
-  // Tracks client-side mount so persisted prefs are read after hydration.
-  const [mounted, setMounted] = useState(false);
+  // Persisted accent, read lazily from localStorage so the first client render
+  // matches what the inline script already applied (no cascading effect).
+  const [accent, setAccent] = useState<Accent>(() =>
+    typeof window !== "undefined"
+      ? ((localStorage.getItem("app-accent") as Accent) ?? "indigo")
+      : "indigo"
+  );
+  // Active preset design id. Classic is the default when nothing is persisted.
+  const [themeDesign, setThemeDesign] = useState<ThemeDesignId>(() =>
+    typeof window !== "undefined"
+      ? isThemeDesignId(localStorage.getItem("theme-design"))
+        ? (localStorage.getItem("theme-design") as ThemeDesignId)
+        : "classic"
+      : "classic"
+  );
+  // Tracks client-side hydration so the active-design highlight is applied
+  // only after mount (false on the server, true on the client).
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+
+  // Mirror accent selection to the document + localStorage. Mutating external
+  // values is only allowed inside an effect, so the side effects live here.
+  useEffect(() => {
+    document.documentElement.dataset.accent = accent;
+    localStorage.setItem("app-accent", accent);
+  }, [accent]);
 
   useEffect(() => {
-    const storedAccent = (localStorage.getItem("app-accent") as Accent) ?? "indigo";
-    const storedDesign = localStorage.getItem("theme-design");
-    setAccentState(storedAccent);
-    setThemeDesignState(isThemeDesignId(storedDesign) ? storedDesign : null);
-    document.documentElement.dataset.accent = storedAccent;
-    if (isThemeDesignId(storedDesign)) {
-      document.documentElement.dataset.themeDesign = storedDesign;
-    }
-    setMounted(true);
-  }, []);
+    document.documentElement.dataset.themeDesign = themeDesign;
+    localStorage.setItem("theme-design", themeDesign);
+  }, [themeDesign]);
 
-  function setAccent(next: Accent) {
-    setAccentState(next);
-    localStorage.setItem("app-accent", next);
-    document.documentElement.dataset.accent = next;
-  }
-
-  function setThemeDesign(design: ThemeDesign) {
-    setThemeDesignState(design.id);
-    localStorage.setItem("theme-design", design.id);
-    document.documentElement.dataset.themeDesign = design.id;
+  // Applies a full preset design: sets the design, mode, and accent.
+  function applyThemeDesign(design: ThemeDesign) {
+    setThemeDesign(design.id);
     setTheme(design.mode);
     setAccent(design.accent);
   }
@@ -158,9 +165,7 @@ function AppearancePanel() {
   function reset() {
     setTheme("system");
     setAccent("indigo");
-    setThemeDesignState(null);
-    localStorage.removeItem("theme-design");
-    delete document.documentElement.dataset.themeDesign;
+    setThemeDesign("classic");
   }
 
   // Available theme modes with their display labels and icons.
@@ -222,7 +227,7 @@ function AppearancePanel() {
             return (
               <button
                 key={design.id}
-                onClick={() => setThemeDesign(design)}
+                onClick={() => applyThemeDesign(design)}
                 aria-pressed={active}
                 className={`flex flex-col gap-3 rounded-xl border p-3 text-left transition ${
                   active
@@ -472,27 +477,30 @@ function ProfilePanel({ name }: { name: string }) {
 
 // Notifications panel: toggles for email, desktop, digest, and reminder prefs.
 function NotificationsPanel() {
-  // Notification preferences, persisted to localStorage on this device.
-  const [prefs, setPrefs] = useState({
-    emailAlerts: true,
-    desktopAlerts: false,
-    weeklyDigest: true,
-    evaluationReminders: true,
-  });
-  // Tracks client mount so stored prefs are applied after hydration.
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
+  // Notification preferences, persisted to localStorage on this device and
+  // read lazily so the first render already reflects stored values.
+  const [prefs, setPrefs] = useState(() => {
+    const defaults = {
+      emailAlerts: true,
+      desktopAlerts: false,
+      weeklyDigest: true,
+      evaluationReminders: true,
+    };
+    if (typeof window === "undefined") return defaults;
     const stored = localStorage.getItem("notification-prefs");
-    if (stored) {
-      try {
-        setPrefs({ ...prefs, ...JSON.parse(stored) });
-      } catch {
-        /* ignore malformed */
-      }
+    if (!stored) return defaults;
+    try {
+      return { ...defaults, ...JSON.parse(stored) };
+    } catch {
+      return defaults;
     }
-    setMounted(true);
-  }, []);
+  });
+  // Tracks client-side hydration so persisted prefs render only after mount.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   function update(key: keyof typeof prefs, value: boolean) {
     const next = { ...prefs, [key]: value };

@@ -1,10 +1,15 @@
 "use client";
 
-// Hooks that read the active accent (key and resolved hex) from the document,
-// keeping React state in sync with the Appearance settings via a MutationObserver.
+// Hooks that read the active accent (key and resolved hex) and theme design
+// from the document, keeping React state in sync with the Appearance settings
+// via a MutationObserver-backed external store.
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import type { Accent } from "@/types";
+import {
+  isThemeDesignId,
+  type ThemeDesignId,
+} from "@/features/settings/themeDesigns";
 
 // Accent keys valid for the document `data-accent` attribute.
 const ACCENTS: Accent[] = ["gold", "indigo", "crimson", "charcoal"];
@@ -25,25 +30,34 @@ function readAccentHex(): string {
   return value || "#2F6798";
 }
 
+// Reads the active theme design id from the document's data-theme-design attribute.
+function readThemeDesign(): ThemeDesignId | null {
+  if (typeof document === "undefined") return null;
+  const value = document.documentElement.dataset.themeDesign;
+  return isThemeDesignId(value) ? value : null;
+}
+
+// Subscribes a callback to changes on an element's attribute set.
+function subscribeAttributes(
+  callback: () => void,
+  attributeFilter: string[]
+): () => void {
+  if (typeof document === "undefined") return () => {};
+  const observer = new MutationObserver(callback);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter });
+  return () => observer.disconnect();
+}
+
 /**
  * Returns the currently selected accent key, kept in sync with the
  * `data-accent` attribute that the Appearance settings write.
  */
 export function useAccent(): Accent {
-  // Holds the live accent key, kept in sync with the document attribute.
-  const [accent, setAccent] = useState<Accent>("indigo");
-
-  useEffect(() => {
-    setAccent(readAccentKey());
-    const observer = new MutationObserver(() => setAccent(readAccentKey()));
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-accent"],
-    });
-    return () => observer.disconnect();
-  }, []);
-
-  return accent;
+  return useSyncExternalStore(
+    (cb) => subscribeAttributes(cb, ["data-accent"]),
+    readAccentKey,
+    () => "indigo" as Accent
+  );
 }
 
 /**
@@ -51,18 +65,22 @@ export function useAccent(): Accent {
  * from the `--app-accent` CSS variable set by the Appearance settings.
  */
 export function useAccentHex(): string {
-  // Holds the live resolved accent hex, kept in sync with CSS variables.
-  const [hex, setHex] = useState<string>("#2F6798");
+  return useSyncExternalStore(
+    (cb) => subscribeAttributes(cb, ["data-accent", "class"]),
+    readAccentHex,
+    () => "#2F6798"
+  );
+}
 
-  useEffect(() => {
-    setHex(readAccentHex());
-    const observer = new MutationObserver(() => setHex(readAccentHex()));
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-accent", "class"],
-    });
-    return () => observer.disconnect();
-  }, []);
-
-  return hex;
+/**
+ * Returns the active preset theme design id (e.g. "editorial"), kept in sync
+ * with the `data-theme-design` attribute that the Appearance settings write.
+ * Returns null when no design is applied.
+ */
+export function useThemeDesign(): ThemeDesignId | null {
+  return useSyncExternalStore(
+    (cb) => subscribeAttributes(cb, ["data-theme-design"]),
+    readThemeDesign,
+    () => null
+  );
 }

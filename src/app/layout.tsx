@@ -22,6 +22,19 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "QA-REY",
   description: "Quality Assurance Management System",
+  icons: {
+    icon: [
+      { url: "/logo.png", media: "(prefers-color-scheme: light)" },
+      {
+        url: "/logo_dark_mode.png",
+        media: "(prefers-color-scheme: dark)",
+      },
+      {
+        url: "/logo_dark_mode.png",
+        media: '(data-accent="charcoal")',
+      },
+    ],
+  },
 };
 
 // Defines the HTML document, injects theme scripts, and wraps children in providers.
