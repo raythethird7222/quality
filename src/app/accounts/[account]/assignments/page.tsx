@@ -5,6 +5,8 @@ import {
   getAccountPeople,
   getAccountLobs,
   getAccountTeamLeads,
+  getAccountEvaluators,
+  getAccountCoaches,
   getAccountAssignmentRowsWithIds,
 } from "@/lib/db/assignments";
 import AssignmentSettingsView from "@/features/assignments/components/AssignmentSettingsView";
@@ -33,10 +35,12 @@ export default async function AccountAssignmentsPage({
 
   const user = await requireAuth();
 
-  const [people, lobs, teamLeads, agentRows] = await Promise.all([
+  const [people, lobs, teamLeads, evaluators, coaches, agentRows] = await Promise.all([
     getAccountPeople(account),
     getAccountLobs(account),
     getAccountTeamLeads(account),
+    getAccountEvaluators(account),
+    getAccountCoaches(account),
     getAccountAssignmentRowsWithIds(account, user),
   ]);
 
@@ -46,6 +50,8 @@ export default async function AccountAssignmentsPage({
       people={people}
       lobs={lobs}
       teamLeads={teamLeads}
+      evaluators={evaluators}
+      coaches={coaches}
       initialAgents={agentRows}
     />
   );

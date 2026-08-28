@@ -3,7 +3,7 @@
 // Roster calendar view: agent monthly calendar with evaluation days and popup.
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
 import { useAccent } from "@/features/settings/useAccent";
@@ -17,6 +17,7 @@ type RosterCalendarViewProps = {
   account: string;
   personName: string;
   evaluations: AgentEvaluation[];
+  canEvaluate: boolean;
 };
 
 // Month name labels used in the calendar header.
@@ -40,6 +41,7 @@ export default function RosterCalendarView({
   account,
   personName,
   evaluations: initialEvaluations,
+  canEvaluate,
 }: RosterCalendarViewProps) {
   // Index of the displayed month (0=Jan ... 11=Dec); starts on current month.
   const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
@@ -401,6 +403,21 @@ export default function RosterCalendarView({
                   No evaluations found for this date.
                 </div>
               )}
+              <div className="mt-4 pt-4 border-t border-border-subtle">
+                {canEvaluate ? (
+                  <button
+                    onClick={() => router.push(`/accounts/${account}/roster/${personName}/evaluation/new?day=${popupDay}&month=${currentMonth}&year=${currentYear}`)}
+                    className={`inline-flex w-full items-center justify-center gap-2 rounded-lg ${a.bg} px-4 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90`}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Evaluate
+                  </button>
+                ) : (
+                  <p className="text-center text-[12px] text-text-muted">
+                    Read-Only Access — You are not the assigned Evaluator
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>

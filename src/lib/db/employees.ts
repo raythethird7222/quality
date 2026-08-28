@@ -955,8 +955,10 @@ export const getDashboardOverview = unstable_cache(
     const totalAgents = accounts.reduce((sum, a) => sum + a.agents, 0);
     const totalQAs = accounts.reduce((sum, a) => sum + a.qaCount, 0);
 
-    // Fetch real chart analytics across all visible accounts.
-    const charts = await getDashboardChartAnalytics(accountCodes);
+    // Fetch real chart analytics across all visible accounts. Non-manager
+    // users (QAs) are scoped to the agents under them; supervisors/admins
+    // see all data.
+    const charts = await getDashboardChartAnalytics(accountCodes, user);
 
     return { isManager, accounts, totalAgents, totalQAs, charts };
   },

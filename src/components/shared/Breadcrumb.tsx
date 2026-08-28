@@ -2,6 +2,7 @@
 
 // Breadcrumb navigation with a back link and accent-colored segment trail.
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import type { Accent } from "@/types";
 import { getAccentColors } from "@/features/accounts/config";
@@ -13,7 +14,7 @@ type BreadcrumbSegment = {
 };
 
 type BreadcrumbProps = {
-  backHref: string;
+  backHref?: string;
   backLabel?: string;
   segments: BreadcrumbSegment[];
   accent: Accent;
@@ -28,6 +29,15 @@ export default function Breadcrumb({
 }: BreadcrumbProps) {
   // Resolve accent color tokens used for styling links and labels.
   const a = getAccentColors(accent);
+  const router = useRouter();
+
+  function handleBack() {
+    if (window.history.length > 1) {
+      router.back();
+    } else if (backHref) {
+      router.push(backHref);
+    }
+  }
 
   return (
     <nav
@@ -35,13 +45,13 @@ export default function Breadcrumb({
       aria-label="Breadcrumb"
     >
       {/* Back navigation link */}
-      <Link
-        href={backHref}
+      <button
+        onClick={handleBack}
         className={`inline-flex items-center gap-2 rounded-lg border ${a.border} bg-card px-3.5 py-2 font-medium ${a.text} transition ${a.hoverBg}`}
       >
         <ArrowLeft className="h-4 w-4" />
         {backLabel}
-      </Link>
+      </button>
       {/* Hierarchical segment trail leading to the current page */}
       <div className="flex items-center gap-2 text-text-muted">
         <Link

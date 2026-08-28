@@ -92,11 +92,121 @@ export async function getAccountLobs(
   return (data ?? []).map((l) => ({ id: l.lob_id, name: l.lob_name }));
 }
 
-// Returns every team lead in the account, independent of whether they already
-// appear in an agent assignment. Combines both sources so no TL is missed:
-//  - employees with the team-lead role in employee_assignments
-//  - employees referenced as team_lead_employee_id in agent_assignments
-// Used to populate the Team Lead dropdown when adding a new agent.
+// Returns every coach in the account, independent of whether they already
+// appear in an agent assignment. Combines both sources so no coach is missed:
+//  - employees with the coach role in employee_assignments
+//  - employees referenced as qa_coach_employee_id in agent_assignments
+// Used to populate the QA Coach dropdown.
+export async function getAccountCoaches(
+  accountCode: string
+): Promise<IdNameOption[]> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+  const supabase = createServerClient();
+
+  const { data: roles } = await supabase
+    .from("roles")
+    .select("role_id, role_name");
+  const coachRoleIds = (roles ?? [])
+    .filter((r) => {
+      const name = r.role_name.trim().toLowerCase().replace(/[_\s]+/g, " ");
+      return (
+        name === "coach" ||
+        name === "qa coach" ||
+        name === "coaches" ||
+        name === "qa coaches"
+      );
+    })
+    .map((r) => r.role_id);
+
+  const ids = new Set<number>();
+
+  if (coachRoleIds.length > 0) {
+    const { data: empAssignments } = await supabase
+      .from("employee_assignments")
+      .select("employee_id")
+      .eq("account_id", accountId)
+      .in("role_id", coachRoleIds);
+    for (const a of empAssignments ?? []) ids.add(a.employee_id);
+  }
+
+  const { data: agentAssignments } = await supabase
+    .from("agent_assignments")
+    .select("qa_coach_employee_id")
+    .eq("account_id", accountId);
+  for (const a of agentAssignments ?? []) {
+    if (a.qa_coach_employee_id != null) ids.add(a.qa_coach_employee_id);
+  }
+
+  if (ids.size === 0) return [];
+
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, employee_name")
+    .in("id", [...ids]);
+
+  return (employees ?? [])
+    .map((e) => ({ id: e.id, name: e.employee_name ?? "Unknown" }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Returns every evaluator in the account, independent of whether they already
+// appear in an agent assignment. Combines both sources so no evaluator is missed:
+//  - employees with the evaluator role in employee_assignments
+//  - employees referenced as qa_evaluator_employee_id in agent_assignments
+// Used to populate the QA Evaluator dropdown.
+export async function getAccountEvaluators(
+  accountCode: string
+): Promise<IdNameOption[]> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+  const supabase = createServerClient();
+
+  const { data: roles } = await supabase
+    .from("roles")
+    .select("role_id, role_name");
+  const evaluatorRoleIds = (roles ?? [])
+    .filter((r) => {
+      const name = r.role_name.trim().toLowerCase().replace(/[_\s]+/g, " ");
+      return (
+        name === "evaluator" ||
+        name === "qa evaluator" ||
+        name === "evaluators" ||
+        name === "qa evaluators"
+      );
+    })
+    .map((r) => r.role_id);
+
+  const ids = new Set<number>();
+
+  if (evaluatorRoleIds.length > 0) {
+    const { data: empAssignments } = await supabase
+      .from("employee_assignments")
+      .select("employee_id")
+      .eq("account_id", accountId)
+      .in("role_id", evaluatorRoleIds);
+    for (const a of empAssignments ?? []) ids.add(a.employee_id);
+  }
+
+  const { data: agentAssignments } = await supabase
+    .from("agent_assignments")
+    .select("qa_evaluator_employee_id")
+    .eq("account_id", accountId);
+  for (const a of agentAssignments ?? []) {
+    if (a.qa_evaluator_employee_id != null) ids.add(a.qa_evaluator_employee_id);
+  }
+
+  if (ids.size === 0) return [];
+
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, employee_name")
+    .in("id", [...ids]);
+
+  return (employees ?? [])
+    .map((e) => ({ id: e.id, name: e.employee_name ?? "Unknown" }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 export async function getAccountTeamLeads(
   accountCode: string
 ): Promise<IdNameOption[]> {
@@ -253,6 +363,46 @@ export async function persistAgentAssignments(
   const statusMap = new Map(
     statuses.map((s) => [s.status_name.trim().toUpperCase(), s.status_id])
   );
+
+  // Pre-check new employees for duplicate codes / emails so we can return a
+  // clear, human-readable error instead of a raw constraint violation.
+  const newEmployees = rows.filter((r) => r.agent != null);
+  if (newEmployees.length > 0) {
+    const codes = newEmployees
+      .map((r) => r.agent?.employeeCode?.trim())
+      .filter((c): c is string => Boolean(c));
+    const emails = newEmployees
+      .map((r) => r.agent?.employeeEmail?.trim())
+      .filter((e): e is string => Boolean(e));
+
+    const dupErrors: string[] = [];
+
+    if (codes.length > 0) {
+      const { data } = await supabase
+        .from("employees")
+        .select("employee_code")
+        .in("employee_code", codes);
+      if (data && data.length > 0) {
+        dupErrors.push(`Employee code already exists: ${data[0].employee_code}`);
+      }
+    }
+
+    if (emails.length > 0) {
+      const { data } = await supabase
+        .from("employees")
+        .select("employee_email")
+        .in("employee_email", emails);
+      if (data && data.length > 0) {
+        dupErrors.push(
+          `An employee with email ${data[0].employee_email} already exists`
+        );
+      }
+    }
+
+    if (dupErrors.length > 0) {
+      throw new Error(dupErrors[0]);
+    }
+  }
 
   const results: PersistedAssignment[] = [];
 

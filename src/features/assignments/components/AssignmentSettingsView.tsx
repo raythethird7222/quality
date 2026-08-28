@@ -30,6 +30,8 @@ type AssignmentSettingsViewProps = {
   people: IdNameOption[];
   lobs: IdNameOption[];
   teamLeads: IdNameOption[];
+  evaluators: IdNameOption[];
+  coaches: IdNameOption[];
   initialAgents: AgentRow[];
   account: string;
 };
@@ -55,6 +57,8 @@ export default function AssignmentSettingsView({
   people,
   lobs,
   teamLeads,
+  evaluators,
+  coaches,
   initialAgents,
   account,
 }: AssignmentSettingsViewProps) {
@@ -99,6 +103,18 @@ export default function AssignmentSettingsView({
   const teamLeadOptions = useMemo(
     () => [{ id: 0, name: "Unassigned" }, ...teamLeads],
     [teamLeads]
+  );
+
+  // QA Evaluator dropdown — only actual evaluators assigned to this account.
+  const evaluatorOptions = useMemo(
+    () => [{ id: 0, name: "Unassigned" }, ...evaluators],
+    [evaluators]
+  );
+
+  // QA Coach dropdown — only actual coaches assigned to this account.
+  const coachOptions = useMemo(
+    () => [{ id: 0, name: "Unassigned" }, ...coaches],
+    [coaches]
   );
 
   // ------------------------------------------------------------
@@ -227,23 +243,77 @@ export default function AssignmentSettingsView({
   // ADD AGENT
   // ------------------------------------------------------------
 
-  function addAgent(payload: NewAgentPayload) {
-    setAgents((prev) => [
-      ...prev,
-      {
-        name: "",
-        lobId: payload.lobId,
-        coachId: payload.coachId,
-        evaluatorId: payload.evaluatorId,
-        teamLeadId: payload.teamLeadId,
-        status: payload.agent.status,
-        isNew: true,
-        agent: payload.agent,
-      },
-    ]);
+  // Saves the new agent directly to the database via the assignments API and
+  // appends the persisted row to the table so it shows up right away.
+  async function addAgent(
+    payload: NewAgentPayload
+  ): Promise<{ ok: boolean; error?: string }> {
+    const row = {
+      agent: payload.agent,
+      lobId: payload.lobId,
+      coachId: payload.coachId,
+      evaluatorId: payload.evaluatorId,
+      teamLeadId: payload.teamLeadId,
+    };
 
-    setSaveState("idle");
+    const parsed = assignmentPayloadSchema.safeParse({ rows: [row] });
+    if (!parsed.success) {
+      const first =
+        parsed.error.issues[0]?.message ?? "Validation failed";
+      setErrorMsg(first);
+      setSaveState("error");
+      return { ok: false, error: first };
+    }
+
+    setSaveState("saving");
     setErrorMsg("");
+
+    try {
+      const res = await fetch(
+        `/api/accounts/${account}/assignments`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: [row] }),
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        const msg = data.error ?? "Failed to save new agent";
+        setErrorMsg(msg);
+        setSaveState("error");
+        return { ok: false, error: msg };
+      }
+
+      const saved = data.rows?.[0] as
+        | { assignmentId: number; agentId: number; name: string }
+        | undefined;
+
+      setAgents((prev) => [
+        ...prev,
+        {
+          assignmentId: saved?.assignmentId,
+          agentId: saved?.agentId,
+          name: saved?.name ?? payload.agent.employeeName,
+          lobId: payload.lobId,
+          coachId: payload.coachId,
+          evaluatorId: payload.evaluatorId,
+          teamLeadId: payload.teamLeadId,
+          status: payload.agent.status,
+          isNew: false,
+        },
+      ]);
+
+      setSaveState("saved");
+      return { ok: true };
+    } catch {
+      const msg = "Network error while saving new agent";
+      setErrorMsg(msg);
+      setSaveState("error");
+      return { ok: false, error: msg };
+    }
   }
 
   // ------------------------------------------------------------
@@ -492,7 +562,7 @@ export default function AssignmentSettingsView({
                   -- Select QA --
                 </option>
 
-                {people.map((p) => (
+                {coaches.map((p) => (
                   <option
                     key={p.id}
                     value={p.id}
@@ -540,7 +610,7 @@ export default function AssignmentSettingsView({
                   -- Select QA --
                 </option>
 
-                {people.map((p) => (
+                {evaluators.map((p) => (
                   <option
                     key={p.id}
                     value={p.id}
@@ -746,45 +816,45 @@ export default function AssignmentSettingsView({
                         />
                       </td>
 
-                      {/* QA COACH */}
+                       {/* QA COACH */}
 
-                      <td className="px-4 py-3">
-                        <CellSelect
-                          value={
-                            agent.coachId ?? 0
-                          }
-                          onChange={(v) =>
-                            updateRow(idx, {
-                              coachId:
-                                Number(v) || null,
-                            })
-                          }
-                          options={
-                            personOptions
-                          }
-                        />
-                      </td>
+                       <td className="px-4 py-3">
+                         <CellSelect
+                           value={
+                             agent.coachId ?? 0
+                           }
+                           onChange={(v) =>
+                             updateRow(idx, {
+                               coachId:
+                                 Number(v) || null,
+                             })
+                           }
+                           options={
+                             coachOptions
+                           }
+                         />
+                       </td>
 
-                      {/* QA EVALUATOR */}
+                       {/* QA EVALUATOR */}
 
-                      <td className="px-4 py-3">
-                        <CellSelect
-                          value={
-                            agent.evaluatorId ??
-                            0
-                          }
-                          onChange={(v) =>
-                            updateRow(idx, {
-                              evaluatorId:
-                                Number(v) ||
-                                null,
-                            })
-                          }
-                          options={
-                            personOptions
-                          }
-                        />
-                      </td>
+                       <td className="px-4 py-3">
+                         <CellSelect
+                           value={
+                             agent.evaluatorId ??
+                             0
+                           }
+                           onChange={(v) =>
+                             updateRow(idx, {
+                               evaluatorId:
+                                 Number(v) ||
+                                 null,
+                             })
+                           }
+                           options={
+                             evaluatorOptions
+                           }
+                         />
+                       </td>
 
                       {/* TEAM LEAD */}
 

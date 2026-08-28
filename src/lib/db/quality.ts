@@ -137,6 +137,8 @@ export type AnalyticsFilters = {
   timeframe?: string;
   dateFrom?: string;
   dateTo?: string;
+  // When set, scope results to agents assigned to this QA (as coach or evaluator).
+  qaEmployeeId?: number;
 };
 
 // Filter options returned to the frontend for populating dropdowns.
@@ -254,7 +256,13 @@ export async function getAccountEvaluationAnalytics(
     query = query.gte("evaluation_date", filters.dateFrom);
   }
   if (filters?.dateTo) {
-    query = query.lte("evaluation_date", filters.dateTo);
+    // Make the upper bound inclusive of the whole day. evaluation_date may be
+    // stored as a timestamp, so a bare YYYY-MM-DD upper bound would exclude
+    // everything after midnight of that day.
+    const endOfDay = /^\d{4}-\d{2}-\d{2}$/.test(filters.dateTo)
+      ? `${filters.dateTo} 23:59:59.999`
+      : filters.dateTo;
+    query = query.lte("evaluation_date", endOfDay);
   }
 
   const { data, error } = await query;
@@ -460,6 +468,126 @@ export async function getAccountEvaluationAnalytics(
   };
 }
 
+// A single evaluation record for the month modal: denormalized with display names.
+export type AccountEvaluationRow = {
+  evaluationId: number;
+  evaluationDate: string | null;
+  agentName: string;
+  coachName: string;
+  evaluatorName: string;
+  guideline: string | null;
+  qaScore: number | null;
+  ticketBill: string | null;
+};
+
+// Returns the raw evaluations for an account within a date period, scoped to the
+// caller's role (managers see everything; others see only their agents). Used by
+// the calendar "Evaluate" modal to list evaluations for a selected month.
+export async function getAccountEvaluationsForPeriod(
+  accountCode: string,
+  user?: AuthUser,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<AccountEvaluationRow[]> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+
+  const manager = isManagerRole(user?.role);
+  const supabase = createServerClient();
+
+  let query = supabase
+    .from("rm_qa_evaluations")
+    .select(
+      "evaluation_id, agent_employee_id, qa_coach_employee_id, qa_evaluator_employee_id, guideline, evaluation_date, qa_score, ticket_bill"
+    )
+    .order("evaluation_date", { ascending: false });
+
+  if (manager) {
+    query = query.eq("account_id", accountId);
+  } else {
+    query = query.eq("account_id", accountId);
+    if (user) {
+      const { data: scopedAssignments } = await supabase
+        .from("agent_assignments")
+        .select("agent_employee_id")
+        .eq("account_id", accountId)
+        .or(
+          `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
+        );
+
+      const scopedAgentIds = [
+        ...new Set(
+          (scopedAssignments ?? [])
+            .map((a) => a.agent_employee_id)
+            .filter((id): id is number => id != null)
+        ),
+      ];
+
+      if (scopedAgentIds.length === 0) return [];
+      query = query.in("agent_employee_id", scopedAgentIds);
+    }
+  }
+
+  // Apply date range filters at the database level for performance.
+  if (dateFrom) {
+    query = query.gte("evaluation_date", dateFrom);
+  }
+  if (dateTo) {
+    // Make the upper bound inclusive of the whole day.
+    const endOfDay = /^\d{4}-\d{2}-\d{2}$/.test(dateTo)
+      ? `${dateTo} 23:59:59.999`
+      : dateTo;
+    query = query.lte("evaluation_date", endOfDay);
+  }
+
+  const { data, error } = await query;
+  if (error || !data) {
+    console.error("Error fetching period evaluations:", error);
+    return [];
+  }
+
+  // Resolve display names for agents, coaches, and evaluators.
+  const ids = new Set<number>();
+  for (const e of data) {
+    if (e.agent_employee_id != null) ids.add(e.agent_employee_id);
+    if (e.qa_coach_employee_id != null) ids.add(e.qa_coach_employee_id);
+    if (e.qa_evaluator_employee_id != null) ids.add(e.qa_evaluator_employee_id);
+  }
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, employee_name")
+    .in("id", [...ids]);
+  const nameById = new Map<number, string>(
+    (employees ?? []).map((e) => [e.id, e.employee_name ?? "Unknown"])
+  );
+
+  return (data as Array<{
+    evaluation_id: number;
+    agent_employee_id: number | null;
+    qa_coach_employee_id: number | null;
+    qa_evaluator_employee_id: number | null;
+    guideline: string | null;
+    evaluation_date: string | null;
+    qa_score: number | null;
+    ticket_bill: string | null;
+  }>).map((e) => ({
+    evaluationId: e.evaluation_id,
+    evaluationDate: e.evaluation_date,
+    agentName: e.agent_employee_id != null
+      ? (nameById.get(e.agent_employee_id) ?? "Unknown")
+      : "Unknown",
+    coachName: e.qa_coach_employee_id != null
+      ? (nameById.get(e.qa_coach_employee_id) ?? "Unknown")
+      : "Unknown",
+    evaluatorName: e.qa_evaluator_employee_id != null
+      ? (nameById.get(e.qa_evaluator_employee_id) ?? "Unknown")
+      : "Unknown",
+    guideline: e.guideline,
+    qaScore: e.qa_score,
+    ticketBill: e.ticket_bill,
+  }));
+}
+
 // Aggregated chart analytics across multiple accounts for the main dashboard.
 export type DashboardChartAnalytics = {
   trendData: { month: string; score: number }[];
@@ -474,7 +602,10 @@ const TREND_MONTHS = [
 
 // Cached 2 minutes — heavy evaluation aggregation across all accounts.
 export const getDashboardChartAnalytics = unstable_cache(
-  async (accountCodes: string[]): Promise<DashboardChartAnalytics> => {
+  async (
+    accountCodes: string[],
+    user?: AuthUser
+  ): Promise<DashboardChartAnalytics> => {
   if (accountCodes.length === 0) {
     return { trendData: [], barData: [], avgScore: null };
   }
@@ -493,14 +624,42 @@ export const getDashboardChartAnalytics = unstable_cache(
 
   const accountIds = accounts.map((a) => a.account_id);
 
+  // Non-manager users (e.g. QA agents) see only the agents under them;
+  // managers/supervisors/admins see all evaluations.
+  let scopedAgentIds: number[] | null = null;
+  if (user && !isManagerRole(user.role)) {
+    const { data: scopedAssignments } = await supabase
+      .from("agent_assignments")
+      .select("agent_employee_id")
+      .in("account_id", accountIds)
+      .or(
+        `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
+      );
+
+    scopedAgentIds = [
+      ...new Set(
+        (scopedAssignments ?? [])
+          .map((a) => a.agent_employee_id)
+          .filter((id): id is number => id != null)
+      ),
+    ];
+  }
+
   // Fetch all evaluations for the relevant accounts.
-  const { data, error } = await supabase
+  let query = supabase
     .from("rm_qa_evaluations")
-    .select(
-      "evaluation_id, account_id, lob_id, qa_score, evaluation_date"
-    )
+    .select("evaluation_id, account_id, lob_id, qa_score, evaluation_date")
     .in("account_id", accountIds)
     .order("evaluation_date", { ascending: true });
+
+  if (scopedAgentIds) {
+    if (scopedAgentIds.length === 0) {
+      return { trendData: [], barData: [], avgScore: null };
+    }
+    query = query.in("agent_employee_id", scopedAgentIds);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data || data.length === 0) {
     return { trendData: [], barData: [], avgScore: null };
@@ -586,6 +745,36 @@ export type AgentEvaluation = {
   lob_id: number | null;
   agent_employee_id: number | null;
 };
+
+// Returns the coach and evaluator employee IDs assigned to an agent.
+export async function getAgentAssignment(
+  accountCode: string,
+  agentName: string
+): Promise<{ coachId: number | null; evaluatorId: number | null }> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return { coachId: null, evaluatorId: null };
+  const supabase = createServerClient();
+
+  const { data: agent } = await supabase
+    .from("employees")
+    .select("id")
+    .ilike("employee_name", agentName)
+    .maybeSingle();
+
+  if (!agent) return { coachId: null, evaluatorId: null };
+
+  const { data: assignment } = await supabase
+    .from("agent_assignments")
+    .select("qa_coach_employee_id, qa_evaluator_employee_id")
+    .eq("account_id", accountId)
+    .eq("agent_employee_id", agent.id)
+    .maybeSingle();
+
+  return {
+    coachId: assignment?.qa_coach_employee_id ?? null,
+    evaluatorId: assignment?.qa_evaluator_employee_id ?? null,
+  };
+}
 
 export async function getAgentEvaluations(
   accountCode: string,

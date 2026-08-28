@@ -1,9 +1,14 @@
 // Browser-side Supabase client factory used in client components.
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-// Creates the browser-side Supabase client using public env credentials.
+// Singleton instance reused across all client component calls.
+let cachedClient: SupabaseClient | null = null;
+
+// Returns the shared browser-side Supabase client (creates it once).
 export function createBrowserClient() {
+  if (cachedClient) return cachedClient;
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -13,7 +18,7 @@ export function createBrowserClient() {
     );
   }
 
-  return createClient(url, key, {
+  cachedClient = createClient(url, key, {
     auth: {
       flowType: "pkce",
       persistSession: true,
@@ -24,4 +29,6 @@ export function createBrowserClient() {
       detectSessionInUrl: false,
     },
   });
+
+  return cachedClient;
 }

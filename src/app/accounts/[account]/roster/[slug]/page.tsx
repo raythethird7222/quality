@@ -2,7 +2,7 @@
 import { notFound } from "next/navigation";
 import { isValidAccount } from "@/features/accounts/config";
 import { requireAuth } from "@/lib/auth";
-import { getAgentEvaluations } from "@/lib/db/quality";
+import { getAgentEvaluations, getAgentAssignment } from "@/lib/db/quality";
 import RosterCalendarView from "@/features/roster/components/RosterCalendarView";
 
 export default async function RosterPage({
@@ -19,10 +19,16 @@ export default async function RosterPage({
   }
 
   // Authenticate the current user.
-  await requireAuth();
+  const user = await requireAuth();
 
   // Fetch real evaluation data for this agent.
-  const evaluations = await getAgentEvaluations(account, slug);
+  const [evaluations, assignment] = await Promise.all([
+    getAgentEvaluations(account, slug),
+    getAgentAssignment(account, slug),
+  ]);
+
+  // Only the assigned Evaluator can evaluate. Coaches get read-only access.
+  const canEvaluate = user.employee_id === assignment.evaluatorId;
 
   // Render the roster calendar view for the requested person.
   return (
@@ -30,6 +36,7 @@ export default async function RosterPage({
       account={account}
       personName={slug}
       evaluations={evaluations}
+      canEvaluate={canEvaluate}
     />
   );
 }

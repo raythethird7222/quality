@@ -156,10 +156,34 @@ export default function GlobalChatbot() {
   const [input, setInput] = useState("");
   // Tracks whether the agent is "thinking" to block duplicate sends.
   const [busy, setBusy] = useState(false);
+  // Panel height — user-adjustable via drag handle.
+  const [panelHeight, setPanelHeight] = useState(48 * 16);
+  const dragRef = useRef<{ startY: number; startH: number } | null>(null);
   // Ref to the scrollable message body for auto-scrolling.
   const scrollRef = useRef<HTMLDivElement>(null);
   // Monotonic counter for assigning unique ids to feed items.
   const idRef = useRef(1);
+
+  // Begin resizing the panel height from a pointer drag.
+  function handleResizeStart(e: React.PointerEvent) {
+    e.preventDefault();
+    dragRef.current = { startY: e.clientY, startH: panelHeight };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  // Update panel height while dragging (pointer down + moving).
+  function handleResizeMove(e: React.PointerEvent) {
+    if (!dragRef.current) return;
+    const delta = dragRef.current.startY - e.clientY;
+    const next = Math.min(48 * 16, Math.max(24 * 16, dragRef.current.startH + delta));
+    setPanelHeight(next);
+  }
+
+  // End the drag resize session.
+  function handleResizeEnd(e: React.PointerEvent) {
+    dragRef.current = null;
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+  }
 
   // Auto-scrolls the message body to the bottom when feed or panel changes.
   useEffect(() => {
@@ -248,7 +272,16 @@ export default function GlobalChatbot() {
       style={{ ["--agent-accent" as string]: accentHex } as React.CSSProperties}
     >
       {open && (
-        <div className="flex h-[80vh] max-h-[48rem] w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:h-[48rem] sm:w-[28rem]">
+        <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:w-[28rem]" style={{ height: panelHeight }}>
+          {/* Resize handle */}
+          <div
+            onPointerDown={handleResizeStart}
+            onPointerMove={handleResizeMove}
+            onPointerUp={handleResizeEnd}
+            className="flex h-3 cursor-ns-resize items-center justify-center border-b border-border bg-surface-raised/50 hover:bg-surface-raised"
+          >
+            <span className="block h-[3px] w-10 rounded-full bg-border-default" />
+          </div>
           {/* Header */}
           <div
             className="flex items-center justify-between px-4 py-3"

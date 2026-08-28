@@ -310,7 +310,9 @@ export default function Dashboard({
                     <TrendingUp size={16} className={a.text} />
                   </span>
                   <CardTitle className="text-sm font-semibold text-text-primary">
-                    QA Performance Trend
+                    {liveOverview.isManager
+                      ? "QA Performance Trend"
+                      : "Agent Performance Trend"}
                   </CardTitle>
                 </div>
                 <div className="rounded-lg bg-surface-raised px-3 py-1.5 text-right">
@@ -325,6 +327,13 @@ export default function Dashboard({
                 </div>
               </CardHeader>
               <CardContent>
+                {liveOverview.charts.trendData.length === 0 ? (
+                  <div className="flex h-[220px] w-full items-center justify-center rounded-xl border border-dashed border-border-subtle bg-surface-raised/50">
+                    <p className="text-sm font-semibold text-text-primary">
+                      No data available
+                    </p>
+                  </div>
+                ) : (
                 <ChartContainer
                   config={trendConfig}
                   className="h-[220px] w-full"
@@ -402,6 +411,7 @@ export default function Dashboard({
                     />
                   </AreaChart>
                 </ChartContainer>
+                )}
               </CardContent>
             </Card>
 
@@ -417,6 +427,13 @@ export default function Dashboard({
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                {liveOverview.charts.barData.length === 0 ? (
+                  <div className="flex h-[220px] w-full items-center justify-center rounded-xl border border-dashed border-border-subtle bg-surface-raised/50">
+                    <p className="text-sm font-semibold text-text-primary">
+                      No data available
+                    </p>
+                  </div>
+                ) : (
                 <ChartContainer
                   config={defectConfig}
                   className="h-[220px] w-full"
@@ -452,6 +469,7 @@ export default function Dashboard({
                     />
                   </BarChart>
                 </ChartContainer>
+                )}
               </CardContent>
             </Card>
           </div>
