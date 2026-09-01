@@ -3,7 +3,6 @@
 // Page: handles the Google OAuth redirect callback, exchanging the code for a session and signing in.
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createBrowserClient } from "@/lib/supabase/client";
 import { LoadingSpinner } from "@/components/ui/loading";
 
 // Client page that processes the OAuth callback flow and routes the user to the dashboard or login.
@@ -14,12 +13,12 @@ export default function AuthCallback() {
 
   // Runs the OAuth exchange and backend sign-in when the component mounts.
   useEffect(() => {
-    // Create a browser Supabase client for the OAuth exchange.
-    const supabase = createBrowserClient();
-    // Guards against state updates after the component unmounts.
+    // Create a browser Supabase client for the OAuth exchange (loaded lazily).
     let cancelled = false;
 
     (async () => {
+      const { createBrowserClient } = await import("@/lib/supabase/client");
+      const supabase = createBrowserClient();
       // Read the OAuth code and any provider-supplied error from the query string.
       const params = new URLSearchParams(window.location.search);
       const code = params.get("code");

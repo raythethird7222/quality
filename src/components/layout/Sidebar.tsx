@@ -15,7 +15,7 @@ import { useState } from "react";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { ACCOUNTS } from "@/features/accounts/config";
 import { getInitials, cn } from "@/lib/utils";
-import { useAccent, useThemeDesign } from "@/features/settings/useAccent";
+import { useAccent, useAccentHex, useThemeDesign } from "@/features/settings/useAccent";
 import { useTheme } from "@/components/ui/ThemeProvider";
 import type { AccountKey, UserRole } from "@/types";
 
@@ -84,7 +84,24 @@ export default function Sidebar({
   const { user, requestLogout } = useAuth();
   const { resolvedTheme } = useTheme();
   const accent = useAccent();
+  const accentHex = useAccentHex();
   const themeDesign = useThemeDesign();
+
+  // Determine if the accent color is dark (needs a light logo) or light (needs
+  // a dark logo). Computes relative luminance from the resolved accent hex.
+  const isDarkAccent = (() => {
+    const hex = accentHex.replace("#", "");
+    const r = parseInt(hex.substring(0, 2), 16) / 255;
+    const g = parseInt(hex.substring(2, 4), 16) / 255;
+    const b = parseInt(hex.substring(4, 6), 16) / 255;
+    // Relative luminance (sRGB approximation).
+    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return luminance < 0.5;
+  })();
+
+  // Use the dark-mode logo when the sidebar background is a dark color,
+  // except for Classic and Midnight which use the original logo.
+  const useDarkLogo = isDarkAccent && themeDesign !== "classic" && themeDesign !== "midnight";
 
   const [collapsed, setCollapsed] = useState(false);
 
@@ -213,16 +230,9 @@ export default function Sidebar({
 
           {!collapsed && (
             <img
-              src="/logo_dark_mode.png"
-              alt="QA-REY Logo (Dark Mode)"
-              className="hidden h-24 w-24 object-contain dark:block"
-            />
-          )}
-          {!collapsed && (
-            <img
-              src="/logo.png"
-              alt="QA-REY Logo (Light Mode)"
-              className="block h-24 w-24 object-contain dark:hidden"
+              src={useDarkLogo ? "/logo_dark_mode.png" : "/logo.png"}
+              alt="QA-REY Logo"
+              className="h-24 w-24 object-contain"
             />
           )}
 

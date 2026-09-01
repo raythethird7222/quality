@@ -3,50 +3,50 @@
 
 import { unstable_cache } from "next/cache";
 import { createServerClient } from "@/lib/supabase/server";
-import type { AuthUser, UserRole } from "@/types";
-
-// Manager-level roles see the full analytics picture for the account;
-// everyone else is scoped to the agents they coach / lead / evaluate.
-// Roles that see the full analytics picture for an account.
-const MANAGER_ROLES: UserRole[] = [
-  "admin",
-  "account_manager",
-  "quality_coordinator",
-  "qa_supervisor",
-];
-
-// Returns true when the given role is a manager-level role.
-function isManagerRole(role: UserRole | undefined): boolean {
-  return role != null && MANAGER_ROLES.includes(role);
-}
+import type { AuthUser } from "@/types";
+import {
+  applyScopedAgentFilter,
+  getEmployeeNameMap,
+  getScopedAgentIds,
+  isManagerRole,
+} from "@/lib/db/helpers";
 
 // Resolves an account's numeric id from its (case-insensitive) code.
-export async function getAccountIdByCode(accountCode: string): Promise<number | null> {
-  const supabase = createServerClient();
-  const { data, error } = await supabase
-    .from("accounts")
-    .select("account_id, account_code")
-    .ilike("account_code", accountCode)
-    .maybeSingle();
-  if (error || !data) return null;
-  return data.account_id;
-}
+// Cached 5 min — the accounts table is small, static reference data.
+export const getAccountIdByCode = unstable_cache(
+  async (accountCode: string): Promise<number | null> => {
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+      .from("accounts")
+      .select("account_id")
+      .ilike("account_code", accountCode)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data.account_id;
+  },
+  ["db", "account-id"],
+  { revalidate: 300, tags: ["db:accounts"] }
+);
 
-// Returns all employee statuses ordered by name.
-export async function getStatuses(): Promise<
-  { status_id: number; status_name: string }[]
-> {
-  const supabase = createServerClient();
-  const { data, error } = await supabase
-    .from("statuses")
-    .select("status_id, status_name")
-    .order("status_name", { ascending: true });
-  if (error) {
-    console.error("Error fetching statuses:", error);
-    return [];
-  }
-  return (data ?? []) as { status_id: number; status_name: string }[];
-}
+// Returns all employee statuses ordered by name. Cached 5 min — static data.
+export const getStatuses = unstable_cache(
+  async (): Promise<
+    { status_id: number; status_name: string }[]
+  > => {
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+      .from("statuses")
+      .select("status_id, status_name")
+      .order("status_name", { ascending: true });
+    if (error) {
+      console.error("Error fetching statuses:", error);
+      return [];
+    }
+    return (data ?? []) as { status_id: number; status_name: string }[];
+  },
+  ["db", "statuses"],
+  { revalidate: 300, tags: ["db:statuses"] }
+);
 
 // Returns all QA evaluations for an account, newest first.
 export async function getQaEvaluationsByAccount(accountCode: string) {
@@ -54,9 +54,9 @@ export async function getQaEvaluationsByAccount(accountCode: string) {
   if (!accountId) return [];
   const supabase = createServerClient();
   const { data, error } = await supabase
-    .from("rm_qa_evaluations")
+    .from("evaluations")
     .select(
-      "evaluation_id, source_evaluation_id, evaluation_type, account_id, lob_id, agent_employee_id, qa_coach_employee_id, qa_evaluator_employee_id, team_lead_employee_id, source_team_lead_name, guideline, evaluation_date, ticket_bill, qa_score, opportunities, notes, submission_datetime, edited_datetime, source_table, created_at"
+      "evaluation_id, source_evaluation_id, evaluation_type, account_id, lob_id, agent_employee_id, qa_coach_employee_id, qa_evaluator_employee_id, team_lead_employee_id, source_team_lead_name, guideline, evaluation_date, ticket_bill, qa_score, opportunities, notes, submission_datetime, edited_datetime, source_table, created_at, checkbox_results"
     )
     .eq("account_id", accountId)
     .order("evaluation_date", { ascending: false });
@@ -64,26 +64,209 @@ export async function getQaEvaluationsByAccount(accountCode: string) {
     console.error("Error fetching QA evaluations:", error);
     return [];
   }
-  return (data ?? []) as import("@/types/database").RmQaEvaluation[];
+  return (data ?? []) as import("@/types/database").Evaluation[];
 }
 
-// Returns all QA parameters (guidelines) for an account.
-export async function getQaParametersByAccount(accountCode: string) {
+// Returns all active QA parameters (guidelines) for an account, optionally
+// filtered by lob_id. Only active parameters are returned.
+export async function getQaParametersByAccount(
+  accountCode: string,
+  lobId?: number
+) {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
   const supabase = createServerClient();
-  const { data, error } = await supabase
-    .from("rm_qa_parameters")
+  let query = supabase
+    .from("evaluation_parameters")
     .select(
-      "parameter_id, account_id, lob_id, guideline, attributes, clauses, score, compound, description"
+      "id, lob_name, guideline, attributes, clauses, score, compound, description, account_id, lob_id, display_order, is_active"
     )
     .eq("account_id", accountId)
-    .order("guideline", { ascending: true });
+    .eq("is_active", true);
+  if (lobId != null) {
+    query = query.eq("lob_id", lobId);
+  }
+  query = query.order("display_order", { ascending: true });
+  const { data, error } = await query;
   if (error) {
     console.error("Error fetching QA parameters:", error);
     return [];
   }
-  return (data ?? []) as import("@/types/database").RmQaParameter[];
+  return (data ?? []).map((row) => ({
+    ...row,
+    score: row.score !== null ? Number(row.score) : null,
+  }));
+}
+
+// Returns the evaluation checklist for an account + guideline from the
+// evaluation_parameters table, active rows ordered by display_order. The
+// checklist groups clauses under their attribute code, and the score column
+// is stored as text (e.g. "5") so it is parsed to a number here. When lobId
+// is provided, parameters are further filtered to that LOB.
+export async function getEvaluationParameters(
+  accountCode: string,
+  guideline: string,
+  lobId?: number
+) {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+  const supabase = createServerClient();
+  let query = supabase
+    .from("evaluation_parameters")
+    .select(
+      "id, lob_name, guideline, attributes, clauses, score, compound, description, account_id, lob_id, display_order, is_active"
+    )
+    .eq("account_id", accountId)
+    .ilike("guideline", guideline)
+    .eq("is_active", true);
+  if (lobId != null) {
+    query = query.eq("lob_id", lobId);
+  }
+  query = query.order("display_order", { ascending: true });
+  const { data, error } = await query;
+  if (error) {
+    console.error("Error fetching evaluation parameters:", error);
+    return [];
+  }
+  return (data ?? []).map((row) => ({
+    ...row,
+    score: row.score !== null ? Number(row.score) : null,
+  }));
+}
+
+// A single checkable clause in an evaluation checklist.
+export type ChecklistClause = {
+  id: number;
+  code: string;
+  description: string;
+  score: number;
+};
+
+// A group of clauses sharing an attribute code.
+export type ChecklistGroup = {
+  code: string;
+  clauses: ChecklistClause[];
+};
+
+// Groups fetched evaluation_parameters rows by attribute code. Returns the
+// groups plus the summed score of every clause (all fetched items count).
+export function buildEvaluationChecklist(
+  rows: {
+    id: number;
+    attributes: string | null;
+    clauses: string | null;
+    score: number | null;
+    description: string | null;
+  }[]
+): { groups: ChecklistGroup[]; totalScore: number } {
+  const groups: ChecklistGroup[] = [];
+  let totalScore = 0;
+  for (const row of rows) {
+    const code = row.attributes ?? "OTHER";
+    const score = row.score !== null ? Number(row.score) : 0;
+    let group = groups.find((g) => g.code === code);
+    if (!group) {
+      group = { code, clauses: [] };
+      groups.push(group);
+    }
+    group.clauses.push({
+      id: row.id,
+      code: row.clauses ?? `ITEM-${group.clauses.length + 1}`,
+      description: row.description ?? "",
+      score,
+    });
+    totalScore += score;
+  }
+  return { groups, totalScore };
+}
+
+// Resolves an agent's employee id by name within an account (used by the
+// roster pages and the evaluation write path).
+export async function getAgentEmployeeId(
+  accountCode: string,
+  agentName: string
+): Promise<number | null> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return null;
+  const supabase = createServerClient();
+  const { data: agent } = await supabase
+    .from("employees")
+    .select("id")
+    .ilike("employee_name", agentName)
+    .maybeSingle();
+  return agent?.id ?? null;
+}
+
+// Returns the agent's VICI link if one is stored, otherwise null.
+export async function getAgentViciLink(
+  agentName: string
+): Promise<string | null> {
+  const supabase = createServerClient();
+  const { data: agent } = await supabase
+    .from("employees")
+    .select("vici_link")
+    .ilike("employee_name", agentName)
+    .maybeSingle();
+  return agent?.vici_link ?? null;
+}
+
+export type CreateEvaluationInput = {
+  accountCode: string;
+  agentName: string;
+  guideline: string;
+  evaluationDate: string;
+  qaScore: number;
+  qaEvaluatorEmployeeId: number;
+  ticketBill?: string;
+  notes?: string;
+  checked: { parameterId: number; checked: boolean }[];
+};
+
+// Persists a manually-created evaluation: one evaluations row with checkbox
+// results stored as JSONB in checkbox_results. Returns the new evaluation id.
+export async function createEvaluation(
+  input: CreateEvaluationInput
+): Promise<number | null> {
+  const accountId = await getAccountIdByCode(input.accountCode);
+  const agentEmployeeId = await getAgentEmployeeId(
+    input.accountCode,
+    input.agentName
+  );
+  if (!accountId || !agentEmployeeId) return null;
+  const supabase = createServerClient();
+
+  // Build the checkbox_results JSONB object: { [parameterId]: checked }.
+  const checkboxResults: Record<string, boolean> = {};
+  for (const c of input.checked) {
+    checkboxResults[String(c.parameterId)] = c.checked;
+  }
+
+  const sourceEvaluationId = `manual-${input.accountCode}-${input.evaluationDate}-${Date.now()}`;
+  const { data: evalRow, error: evalError } = await supabase
+    .from("evaluations")
+    .insert({
+      source_evaluation_id: sourceEvaluationId,
+      evaluation_type: input.guideline,
+      account_id: accountId,
+      agent_employee_id: agentEmployeeId,
+      qa_evaluator_employee_id: input.qaEvaluatorEmployeeId,
+      guideline: input.guideline,
+      evaluation_date: input.evaluationDate,
+      ticket_bill: input.ticketBill ?? null,
+      qa_score: input.qaScore,
+      notes: input.notes ?? null,
+      submission_datetime: new Date().toISOString(),
+      source_table: "MANUAL",
+      checkbox_results: checkboxResults,
+    })
+    .select("evaluation_id")
+    .single();
+  if (evalError || !evalRow) {
+    console.error("Error inserting evaluation:", evalError);
+    return null;
+  }
+
+  return evalRow.evaluation_id;
 }
 
 // Returns covers for an account, resolved via its LOBs.
@@ -181,11 +364,15 @@ const PIE_FILLS = [
 
 // Computes the full evaluation analytics for an account, scoped to the
 // caller's role (managers see everything; others see only their agents).
-export async function getAccountEvaluationAnalytics(
-  accountCode: string,
-  user?: AuthUser,
-  filters?: AnalyticsFilters
-): Promise<EvaluationAnalytics> {
+// Cached briefly (60s) because this is an aggregation over a date range and
+// is re-run frequently by the calendar/analytics views. The cache key includes
+// the account, user, and filter arguments, so per-user scoping is preserved.
+export const getAccountEvaluationAnalytics = unstable_cache(
+  async (
+    accountCode: string,
+    user?: AuthUser,
+    filters?: AnalyticsFilters
+  ): Promise<EvaluationAnalytics> => {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) {
     return {
@@ -201,54 +388,31 @@ export async function getAccountEvaluationAnalytics(
     };
   }
 
-  const manager = isManagerRole(user?.role);
-
   const supabase = createServerClient();
 
   let query = supabase
-    .from("rm_qa_evaluations")
+    .from("evaluations")
     .select(
       "evaluation_id, agent_employee_id, qa_score, guideline, evaluation_date, lob_id"
     )
-    .order("evaluation_date", { ascending: true });
+    .order("evaluation_date", { ascending: true })
+    .eq("account_id", accountId);
 
-  if (manager) {
-    query = query.eq("account_id", accountId);
-  } else {
-    query = query.eq("account_id", accountId);
-    if (user) {
-      const { data: scopedAssignments } = await supabase
-        .from("agent_assignments")
-        .select("agent_employee_id")
-        .eq("account_id", accountId)
-        .or(
-          `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
-        );
-
-      const scopedAgentIds = [
-        ...new Set(
-          (scopedAssignments ?? [])
-            .map((a) => a.agent_employee_id)
-            .filter((id): id is number => id != null)
-        ),
-      ];
-
-      if (scopedAgentIds.length === 0) {
-        return {
-          totalEvaluations: 0,
-          avgScore: null,
-          failedEvaluations: 0,
-          trendData: [],
-          pieData: [],
-          barData: [],
-          rankingData: [],
-          agentPerformance: [],
-          filterOptions: { lobOptions: [], guidelineOptions: [] },
-        };
-      }
-
-      query = query.in("agent_employee_id", scopedAgentIds);
-    }
+  const scoped = await getScopedAgentIds(accountId, user);
+  const scopedFilter = applyScopedAgentFilter(query, scoped);
+  query = scopedFilter.query;
+  if (scopedFilter.isEmpty) {
+    return {
+      totalEvaluations: 0,
+      avgScore: null,
+      failedEvaluations: 0,
+      trendData: [],
+      pieData: [],
+      barData: [],
+      rankingData: [],
+      agentPerformance: [],
+      filterOptions: { lobOptions: [], guidelineOptions: [] },
+    };
   }
 
   // Apply date range filters at the database level for performance.
@@ -291,15 +455,17 @@ export async function getAccountEvaluationAnalytics(
     lob_id: number | null;
   }[];
 
-  const [{ data: employees }, { data: lobs }] = await Promise.all([
-    supabase.from("employees").select("id, employee_name"),
+  // Resolve display names only for employees referenced by the evaluations and
+  // the LOBs used, rather than loading every employee in the system.
+  const referencedEmployeeIds = new Set<number>();
+  for (const e of evaluations) {
+    if (e.agent_employee_id != null) referencedEmployeeIds.add(e.agent_employee_id);
+  }
+  const [employeeName, { data: lobs }] = await Promise.all([
+    getEmployeeNameMap(referencedEmployeeIds),
     supabase.from("lobs").select("lob_id, lob_name").eq("account_id", accountId),
   ]);
 
-  // Maps employee id to display name for ranking/agent performance output.
-  const employeeName = new Map<number, string>(
-    (employees ?? []).map((e) => [e.id, e.employee_name ?? "Unknown"])
-  );
   // Maps LOB id to display name for the structural defect distribution.
   const lobName = new Map<number, string>(
     (lobs ?? []).map((l) => [l.lob_id, l.lob_name])
@@ -466,7 +632,10 @@ export async function getAccountEvaluationAnalytics(
     agentPerformance,
     filterOptions: { lobOptions, guidelineOptions },
   };
-}
+  },
+  ["db", "evaluation-analytics"],
+  { revalidate: 30, tags: ["evaluations"] }
+);
 
 // A single evaluation record for the month modal: denormalized with display names.
 export type AccountEvaluationRow = {
@@ -483,49 +652,44 @@ export type AccountEvaluationRow = {
 // Returns the raw evaluations for an account within a date period, scoped to the
 // caller's role (managers see everything; others see only their agents). Used by
 // the calendar "Evaluate" modal to list evaluations for a selected month.
+// When `agentName` is provided, the result is further scoped to that single
+// agent's evaluations (used by the roster calendar realtime refetch).
 export async function getAccountEvaluationsForPeriod(
   accountCode: string,
   user?: AuthUser,
   dateFrom?: string,
-  dateTo?: string
+  dateTo?: string,
+  agentName?: string
 ): Promise<AccountEvaluationRow[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const manager = isManagerRole(user?.role);
   const supabase = createServerClient();
 
   let query = supabase
-    .from("rm_qa_evaluations")
+    .from("evaluations")
     .select(
       "evaluation_id, agent_employee_id, qa_coach_employee_id, qa_evaluator_employee_id, guideline, evaluation_date, qa_score, ticket_bill"
     )
-    .order("evaluation_date", { ascending: false });
+    .order("evaluation_date", { ascending: false })
+    .eq("account_id", accountId);
 
-  if (manager) {
-    query = query.eq("account_id", accountId);
-  } else {
-    query = query.eq("account_id", accountId);
-    if (user) {
-      const { data: scopedAssignments } = await supabase
-        .from("agent_assignments")
-        .select("agent_employee_id")
-        .eq("account_id", accountId)
-        .or(
-          `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
-        );
+  // Scope non-managers to the agents they coach / evaluate / lead.
+  const scoped = await getScopedAgentIds(accountId, user);
+  const scopedFilter = applyScopedAgentFilter(query, scoped);
+  query = scopedFilter.query;
+  if (scopedFilter.isEmpty) return [];
 
-      const scopedAgentIds = [
-        ...new Set(
-          (scopedAssignments ?? [])
-            .map((a) => a.agent_employee_id)
-            .filter((id): id is number => id != null)
-        ),
-      ];
-
-      if (scopedAgentIds.length === 0) return [];
-      query = query.in("agent_employee_id", scopedAgentIds);
-    }
+  // When an agent name is provided, resolve its employee id and restrict the
+  // result to that agent only (avoids fetching the whole account's records).
+  if (agentName) {
+    const { data: agent } = await supabase
+      .from("employees")
+      .select("id")
+      .ilike("employee_name", agentName)
+      .maybeSingle();
+    if (!agent) return [];
+    query = query.eq("agent_employee_id", agent.id);
   }
 
   // Apply date range filters at the database level for performance.
@@ -540,26 +704,23 @@ export async function getAccountEvaluationsForPeriod(
     query = query.lte("evaluation_date", endOfDay);
   }
 
+  // Cap the result set to avoid loading an unbounded month of evaluations.
+  query = query.limit(500);
+
   const { data, error } = await query;
   if (error || !data) {
     console.error("Error fetching period evaluations:", error);
     return [];
   }
 
-  // Resolve display names for agents, coaches, and evaluators.
+  // Resolve display names for agents, coaches, and evaluators in one query.
   const ids = new Set<number>();
   for (const e of data) {
     if (e.agent_employee_id != null) ids.add(e.agent_employee_id);
     if (e.qa_coach_employee_id != null) ids.add(e.qa_coach_employee_id);
     if (e.qa_evaluator_employee_id != null) ids.add(e.qa_evaluator_employee_id);
   }
-  const { data: employees } = await supabase
-    .from("employees")
-    .select("id, employee_name")
-    .in("id", [...ids]);
-  const nameById = new Map<number, string>(
-    (employees ?? []).map((e) => [e.id, e.employee_name ?? "Unknown"])
-  );
+  const employeeName = await getEmployeeNameMap(ids);
 
   return (data as Array<{
     evaluation_id: number;
@@ -574,13 +735,13 @@ export async function getAccountEvaluationsForPeriod(
     evaluationId: e.evaluation_id,
     evaluationDate: e.evaluation_date,
     agentName: e.agent_employee_id != null
-      ? (nameById.get(e.agent_employee_id) ?? "Unknown")
+      ? (employeeName.get(e.agent_employee_id) ?? "Unknown")
       : "Unknown",
     coachName: e.qa_coach_employee_id != null
-      ? (nameById.get(e.qa_coach_employee_id) ?? "Unknown")
+      ? (employeeName.get(e.qa_coach_employee_id) ?? "Unknown")
       : "Unknown",
     evaluatorName: e.qa_evaluator_employee_id != null
-      ? (nameById.get(e.qa_evaluator_employee_id) ?? "Unknown")
+      ? (employeeName.get(e.qa_evaluator_employee_id) ?? "Unknown")
       : "Unknown",
     guideline: e.guideline,
     qaScore: e.qa_score,
@@ -647,7 +808,7 @@ export const getDashboardChartAnalytics = unstable_cache(
 
   // Fetch all evaluations for the relevant accounts.
   let query = supabase
-    .from("rm_qa_evaluations")
+    .from("evaluations")
     .select("evaluation_id, account_id, lob_id, qa_score, evaluation_date")
     .in("account_id", accountIds)
     .order("evaluation_date", { ascending: true });
@@ -744,15 +905,16 @@ export type AgentEvaluation = {
   guideline: string | null;
   lob_id: number | null;
   agent_employee_id: number | null;
+  checkbox_results: Record<string, boolean> | null;
 };
 
-// Returns the coach and evaluator employee IDs assigned to an agent.
+// Returns the coach, evaluator, and LOB assigned to an agent.
 export async function getAgentAssignment(
   accountCode: string,
   agentName: string
-): Promise<{ coachId: number | null; evaluatorId: number | null }> {
+): Promise<{ coachId: number | null; evaluatorId: number | null; lobId: number | null }> {
   const accountId = await getAccountIdByCode(accountCode);
-  if (!accountId) return { coachId: null, evaluatorId: null };
+  if (!accountId) return { coachId: null, evaluatorId: null, lobId: null };
   const supabase = createServerClient();
 
   const { data: agent } = await supabase
@@ -761,11 +923,11 @@ export async function getAgentAssignment(
     .ilike("employee_name", agentName)
     .maybeSingle();
 
-  if (!agent) return { coachId: null, evaluatorId: null };
+  if (!agent) return { coachId: null, evaluatorId: null, lobId: null };
 
   const { data: assignment } = await supabase
     .from("agent_assignments")
-    .select("qa_coach_employee_id, qa_evaluator_employee_id")
+    .select("qa_coach_employee_id, qa_evaluator_employee_id, lob_id")
     .eq("account_id", accountId)
     .eq("agent_employee_id", agent.id)
     .maybeSingle();
@@ -773,6 +935,7 @@ export async function getAgentAssignment(
   return {
     coachId: assignment?.qa_coach_employee_id ?? null,
     evaluatorId: assignment?.qa_evaluator_employee_id ?? null,
+    lobId: assignment?.lob_id ?? null,
   };
 }
 
@@ -795,9 +958,9 @@ export async function getAgentEvaluations(
   if (!agent) return [];
 
   const { data, error } = await supabase
-    .from("rm_qa_evaluations")
+    .from("evaluations")
     .select(
-      "evaluation_id, evaluation_date, qa_score, guideline, lob_id, agent_employee_id"
+      "evaluation_id, evaluation_date, qa_score, guideline, lob_id, agent_employee_id, checkbox_results"
     )
     .eq("account_id", accountId)
     .eq("agent_employee_id", agent.id)
@@ -808,6 +971,38 @@ export async function getAgentEvaluations(
     return [];
   }
   return (data ?? []) as AgentEvaluation[];
+}
+
+// Returns a single evaluation by its id, including checkbox_results JSONB.
+export async function getEvaluationById(
+  evaluationId: number
+): Promise<{
+  evaluation_id: number;
+  qa_score: number | null;
+  guideline: string | null;
+  notes: string | null;
+  ticket_bill: string | null;
+  evaluation_date: string | null;
+  checkbox_results: Record<string, boolean> | null;
+} | null> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase
+    .from("evaluations")
+    .select(
+      "evaluation_id, qa_score, guideline, notes, ticket_bill, evaluation_date, checkbox_results"
+    )
+    .eq("evaluation_id", evaluationId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as {
+    evaluation_id: number;
+    qa_score: number | null;
+    guideline: string | null;
+    notes: string | null;
+    ticket_bill: string | null;
+    evaluation_date: string | null;
+    checkbox_results: Record<string, boolean> | null;
+  };
 }
 
 // Returns all assignment reporting (supervisor relationships), newest first.

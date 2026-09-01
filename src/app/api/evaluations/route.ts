@@ -20,12 +20,14 @@ export async function GET(req: NextRequest) {
 
   const dateFrom = req.nextUrl.searchParams.get("dateFrom") ?? undefined;
   const dateTo = req.nextUrl.searchParams.get("dateTo") ?? undefined;
+  const agent = req.nextUrl.searchParams.get("agent") ?? undefined;
 
   const evaluations = await getAccountEvaluationsForPeriod(
     account,
     user,
     dateFrom,
-    dateTo
+    dateTo,
+    agent
   );
 
   return NextResponse.json({ evaluations });

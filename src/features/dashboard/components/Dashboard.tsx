@@ -36,7 +36,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { getAccentColors } from "@/features/accounts/config";
 import AvatarCropModal from "@/components/ui/avatar-crop-modal";
 import { useAccent, useAccentHex } from "@/features/settings/useAccent";
-import { createBrowserClient } from "@/lib/supabase/client";
+import { debounce } from "@/lib/debounce";
 import type { AuthUser } from "@/types";
 import type { DashboardOverview } from "@/lib/db/employees";
 
@@ -75,28 +75,45 @@ export default function Dashboard({
     return () => clearInterval(timer);
   }, []);
 
-  // Supabase Realtime: listen for changes on rm_qa_evaluations
-  // and re-fetch the dashboard overview so charts stay live.
+  // Supabase Realtime: listen for changes on evaluations
+  // and re-fetch the dashboard overview so charts stay live. The client is
+  // lazy-loaded so the ~230KB supabase-js chunk is not parsed on the
+  // initial render of this page.
   useEffect(() => {
-    const supabase = createBrowserClient();
-    const channel = supabase
-      .channel("dashboard-evaluations")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "rm_qa_evaluations" },
-        () => {
-          fetch("/api/dashboard")
-            .then((res) => res.json())
-            .then((data) => {
-              if (data.overview) setLiveOverview(data.overview);
-            })
-            .catch(console.error);
-        }
-      )
-      .subscribe();
+    let disposed = false;
+    let teardown: (() => void) | undefined;
+
+    void (async () => {
+      const { createBrowserClient } = await import("@/lib/supabase/client");
+      if (disposed) return;
+      const supabase = createBrowserClient();
+      // Coalesce bursts of realtime events into a single refetch.
+      const refetch = debounce(() => {
+        fetch("/api/dashboard")
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.overview) setLiveOverview(data.overview);
+          })
+          .catch(console.error);
+      }, 300);
+
+      const channel = supabase
+        .channel("dashboard-evaluations")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "evaluations" },
+          refetch
+        )
+        .subscribe();
+
+      teardown = () => {
+        supabase.removeChannel(channel);
+      };
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      disposed = true;
+      teardown?.();
     };
   }, []);
 

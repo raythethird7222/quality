@@ -10,7 +10,6 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import type { AuthUser } from "@/types";
-import { createBrowserClient } from "@/lib/supabase/client";
 import LogoutConfirmModal from "@/components/ui/logout-confirm-modal";
 
 // Shape of the authentication context value exposed to consumers.
@@ -135,11 +134,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Clears the local session and signs the user out of Supabase.
   const logout = useCallback(() => {
     setLogoutOpen(false);
-    const supabase = createBrowserClient();
-    void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
-      void supabase.auth.signOut().catch(() => {});
+    void (async () => {
+      // Lazy-load the browser Supabase client only when signing out so the
+      // ~230KB supabase-js chunk stays off the initial load of every page.
+      const signOutSupabase = async () => {
+        try {
+          const { createBrowserClient } = await import("@/lib/supabase/client");
+          await createBrowserClient()
+            .auth.signOut()
+            .catch(() => {});
+        } catch {
+          // Non-fatal: the server session is still cleared below.
+        }
+      };
+      await Promise.all([
+        signOutSupabase(),
+        fetch("/api/auth/logout", { method: "POST" }),
+      ]);
       window.location.replace("/login");
-    });
+    })();
   }, []);
 
   // Opens the global logout confirmation modal.

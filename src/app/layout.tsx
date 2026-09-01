@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 
 // App-wide metadata used for document title and description.
 export const metadata: Metadata = {
-  title: "QA-REY",
+  title: "QA-Tool",
   description: "Quality Assurance Management System",
   icons: {
     icon: [

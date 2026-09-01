@@ -16,6 +16,7 @@ import {
   getDashboardChartAnalytics,
   type DashboardChartAnalytics,
 } from "@/lib/db/quality";
+import { getScopedAgentIds } from "@/lib/db/helpers";
 
 // Roles that are granted manager-level visibility across all accounts.
 const DASHBOARD_MANAGER_ROLES: UserRole[] = [
@@ -287,21 +288,28 @@ export async function getEmployeesByAccount(accountCode: string) {
 
   if (!accountId) return [];
 
-  const { data: employees, error: empError } = await supabase
-    .from("employees")
-    .select("id, employee_code, employee_name, employee_email");
-
-  if (empError) {
-    console.error("Error fetching employees:", empError);
-    return [];
-  }
-
+  // Fetch the account's assignments first to derive the exact set of employee
+  // IDs, then query only those employees (avoids a full-table scan).
   const { data: assignments } = await supabase
     .from("employee_assignments")
     .select(
       "assignment_id, employee_id, role_id, account_id, lob_id, effective_from, effective_to"
     )
     .eq("account_id", accountId);
+
+  if (!assignments || assignments.length === 0) return [];
+
+  const employeeIds = [...new Set(assignments.map((a) => a.employee_id))];
+
+  const { data: employees, error: empError } = await supabase
+    .from("employees")
+    .select("id, employee_code, employee_name, employee_email")
+    .in("id", employeeIds);
+
+  if (empError) {
+    console.error("Error fetching employees:", empError);
+    return [];
+  }
 
   const roles = await loadRoles();
   const lobs = await loadLobs();
@@ -441,57 +449,40 @@ export async function getEmployeesPaginated({
   };
 }
 
-// Returns all accounts ordered by code.
+// Returns all accounts ordered by code (cached 5 min via loadAccounts).
 export async function getAccounts() {
-  const supabase = createServerClient();
-
-  const { data, error } = await supabase
-    .from("accounts")
-    .select("account_id, account_code, account_name")
-    .order("account_code", { ascending: true });
-
-  if (error) {
-    console.error("Error fetching accounts:", error);
-    return [];
-  }
-
-  return (data ?? []) as AccountRow[];
+  const accounts = await loadAccounts();
+  return accounts.sort((a, b) => a.account_code.localeCompare(b.account_code));
 }
 
-// Returns all roles ordered by name.
+// Returns all roles ordered by name (cached 5 min via loadRoles).
 export async function getRoles() {
-  const supabase = createServerClient();
-
-  const { data, error } = await supabase
-    .from("roles")
-    .select("role_id, role_name")
-    .order("role_name", { ascending: true });
-
-  if (error) {
-    console.error("Error fetching roles:", error);
-    return [];
-  }
-
-  return (data ?? []) as RoleRow[];
+  const roles = await loadRoles();
+  return roles.sort((a, b) => a.role_name.localeCompare(b.role_name));
 }
 
 // Returns the LOBs belonging to a specific account, ordered by name.
-export async function getLobsByAccount(accountId: number) {
-  const supabase = createServerClient();
+// LOBs are stable reference data per account, so the result is cached.
+export const getLobsByAccount = unstable_cache(
+  async (accountId: number) => {
+    const supabase = createServerClient();
 
-  const { data, error } = await supabase
-    .from("lobs")
-    .select("lob_id, lob_name, account_id")
-    .eq("account_id", accountId)
-    .order("lob_name", { ascending: true });
+    const { data, error } = await supabase
+      .from("lobs")
+      .select("lob_id, lob_name, account_id")
+      .eq("account_id", accountId)
+      .order("lob_name", { ascending: true });
 
-  if (error) {
-    console.error("Error fetching LOBs:", error);
-    return [];
-  }
+    if (error) {
+      console.error("Error fetching LOBs:", error);
+      return [] as { lob_id: number; lob_name: string; account_id: number }[];
+    }
 
-  return (data ?? []) as { lob_id: number; lob_name: string; account_id: number }[];
-}
+    return (data ?? []) as { lob_id: number; lob_name: string; account_id: number }[];
+  },
+  ["db", "lobs-account"],
+  { revalidate: 300, tags: ["db:lobs"] }
+);
 
 // Flattened employee shape with role, account, LOB, and status names.
 type EnrichedEmployee = {
@@ -632,63 +623,71 @@ export async function getAccountAgents(
 }
 
 // Returns the sorted list of QA employee names (coaches + evaluators) for an account.
-export async function getAccountQAs(accountCode: string): Promise<string[]> {
-  const accountId = await getAccountIdByCode(accountCode);
-  if (!accountId) return [];
+// Cached briefly — team structure is stable outside of assignment edits.
+export const getAccountQAs = unstable_cache(
+  async (accountCode: string): Promise<string[]> => {
+    const accountId = await getAccountIdByCode(accountCode);
+    if (!accountId) return [];
 
-  const supabase = createServerClient();
-  const { data: assignments } = await supabase
-    .from("agent_assignments")
-    .select("qa_coach_employee_id, qa_evaluator_employee_id")
-    .eq("account_id", accountId);
+    const supabase = createServerClient();
+    const { data: assignments } = await supabase
+      .from("agent_assignments")
+      .select("qa_coach_employee_id, qa_evaluator_employee_id")
+      .eq("account_id", accountId);
 
-  if (!assignments || assignments.length === 0) return [];
+    if (!assignments || assignments.length === 0) return [];
 
-  // Collect all unique QA employee ids.
-  const qaIds = new Set<number>();
-  for (const a of assignments) {
-    if (a.qa_coach_employee_id) qaIds.add(a.qa_coach_employee_id);
-    if (a.qa_evaluator_employee_id) qaIds.add(a.qa_evaluator_employee_id);
-  }
+    // Collect all unique QA employee ids.
+    const qaIds = new Set<number>();
+    for (const a of assignments) {
+      if (a.qa_coach_employee_id) qaIds.add(a.qa_coach_employee_id);
+      if (a.qa_evaluator_employee_id) qaIds.add(a.qa_evaluator_employee_id);
+    }
 
-  const { data: employees } = await supabase
-    .from("employees")
-    .select("id, employee_name")
-    .in("id", [...qaIds]);
+    const { data: employees } = await supabase
+      .from("employees")
+      .select("id, employee_name")
+      .in("id", [...qaIds]);
 
-  return (employees ?? [])
-    .map((e) => e.employee_name ?? "")
-    .filter(Boolean)
-    .sort();
-}
+    return (employees ?? [])
+      .map((e) => e.employee_name ?? "")
+      .filter(Boolean)
+      .sort();
+  },
+  ["db", "account-qas"],
+  { revalidate: 60, tags: ["db:qas"] }
+);
 
 // Returns the sorted list of team lead names for an account.
-export async function getAccountTeamLeads(
-  accountCode: string
-): Promise<string[]> {
-  const accountId = await getAccountIdByCode(accountCode);
-  if (!accountId) return [];
+// Cached briefly — team structure is stable outside of assignment edits.
+export const getAccountTeamLeads = unstable_cache(
+  async (accountCode: string): Promise<string[]> => {
+    const accountId = await getAccountIdByCode(accountCode);
+    if (!accountId) return [];
 
-  const supabase = createServerClient();
-  const { data: assignments } = await supabase
-    .from("agent_assignments")
-    .select("team_lead_employee_id")
-    .eq("account_id", accountId);
+    const supabase = createServerClient();
+    const { data: assignments } = await supabase
+      .from("agent_assignments")
+      .select("team_lead_employee_id")
+      .eq("account_id", accountId);
 
-  if (!assignments || assignments.length === 0) return [];
+    if (!assignments || assignments.length === 0) return [];
 
-  const tlIds = [...new Set(assignments.map((a) => a.team_lead_employee_id))];
+    const tlIds = [...new Set(assignments.map((a) => a.team_lead_employee_id))];
 
-  const { data: employees } = await supabase
-    .from("employees")
-    .select("id, employee_name")
-    .in("id", tlIds);
+    const { data: employees } = await supabase
+      .from("employees")
+      .select("id, employee_name")
+      .in("id", tlIds);
 
-  return (employees ?? [])
-    .map((e) => e.employee_name ?? "")
-    .filter(Boolean)
-    .sort();
-}
+    return (employees ?? [])
+      .map((e) => e.employee_name ?? "")
+      .filter(Boolean)
+      .sort();
+  },
+  ["db", "account-team-leads"],
+  { revalidate: 60, tags: ["db:team-leads"] }
+);
 
 // Resolves the most relevant QA name: a matching employee or the first QA.
 export async function getAccountQaName(
@@ -828,25 +827,13 @@ export async function getAccountTeamOverview(
     (e) => classifyRole(e.role_name) === "agent"
   );
 
-  if (user && !isManagerRole(user.role)) {
-    const accountId = await getAccountIdByCode(accountCode);
-    if (accountId) {
-      const supabase = createServerClient();
-      const { data: scopedAssignments } = await supabase
-        .from("agent_assignments")
-        .select("agent_employee_id")
-        .eq("account_id", accountId)
-        .or(
-          `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
-        );
+  const accountId = await getAccountIdByCode(accountCode);
 
-      const scopedIds = new Set(
-        (scopedAssignments ?? [])
-          .map((a) => a.agent_employee_id)
-          .filter((id): id is number => id != null)
-      );
-
-      agents = agents.filter((e) => scopedIds.has(e.id));
+  if (accountId && user && !isManagerRole(user.role)) {
+    const scoped = await getScopedAgentIds(accountId, user);
+    if (scoped.agentIds !== null) {
+      const scopedSet = new Set(scoped.agentIds);
+      agents = agents.filter((e) => scopedSet.has(e.id));
     }
   }
 
@@ -854,16 +841,18 @@ export async function getAccountTeamOverview(
     (e) => classifyRole(e.role_name) === "qa"
   );
 
-  const supabase = createServerClient();
-  const { data: assignments } = await supabase
-    .from("agent_assignments")
-    .select(
-      "agent_employee_id, qa_coach_employee_id, qa_evaluator_employee_id, team_lead_employee_id"
-    )
-    .eq("account_id", (await getAccountIdByCode(accountCode)) ?? 0);
+  let assignments: { agent_employee_id: number; qa_coach_employee_id: number | null }[] = [];
+  if (accountId) {
+    const supabase = createServerClient();
+    const { data } = await supabase
+      .from("agent_assignments")
+      .select("agent_employee_id, qa_coach_employee_id")
+      .eq("account_id", accountId);
+    assignments = (data ?? []) as typeof assignments;
+  }
 
   const memberAgentCount = new Map<number, number>();
-  for (const a of assignments ?? []) {
+  for (const a of assignments) {
     const coachId = a.qa_coach_employee_id;
     if (coachId != null) {
       memberAgentCount.set(coachId, (memberAgentCount.get(coachId) ?? 0) + 1);
