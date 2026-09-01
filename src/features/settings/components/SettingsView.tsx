@@ -1,8 +1,10 @@
 "use client";
 
+// Settings page: tabbed UI for managing appearance, profile, notifications,
+// and account preferences, backed by local persistence and the auth context.
+
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   Bell,
   Check,
@@ -22,12 +24,16 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import AvatarCropModal from "@/components/ui/avatar-crop-modal";
 import { ACCENT_HEX } from "@/features/settings/config";
+import { THEME_DESIGNS, isThemeDesignId, type ThemeDesign, type ThemeDesignId } from "@/features/settings/themeDesigns";
 import type { Accent } from "@/types";
 
+// Accent keys offered in the Appearance panel.
 const ACCENTS: Accent[] = ["gold", "indigo", "crimson", "charcoal"];
 
+// Identifiers for the four settings sections.
 type TabKey = "appearance" | "profile" | "notifications" | "account";
 
+// Sidebar navigation entries, each tied to a TabKey and icon.
 const TABS: { key: TabKey; label: string; icon: typeof UserIcon }[] = [
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "profile", label: "Profile", icon: UserIcon },
@@ -35,12 +41,11 @@ const TABS: { key: TabKey; label: string; icon: typeof UserIcon }[] = [
   { key: "account", label: "Account", icon: ShieldCheck },
 ];
 
-const avatarSvg =
-  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%23E8E7E5'><rect width='100' height='100'/><text x='50%' y='55%' font-family='sans-serif' font-size='32' font-weight='bold' fill='%232F6798' dominant-baseline='middle' text-anchor='middle'>QA</text></svg>";
-
+// Top-level settings view: renders the breadcrumb, header, tab nav, and the
+// active panel based on the selected section.
 export default function SettingsView() {
-  const { user, logout, updateUser } = useAuth();
-  const router = useRouter();
+  const { user, requestLogout } = useAuth();
+  // Tracks the currently selected settings section.
   const [tab, setTab] = useState<TabKey>("appearance");
 
   if (!user) {
@@ -50,11 +55,15 @@ export default function SettingsView() {
           Please sign in to view settings.
         </p>
       </div>
-    );
-  }
+  );
+}
 
+// Appearance panel: manages theme mode, full theme designs, and accent color,
+
+  // Display name used by the profile panel, falling back to "Operator".
   const name = user.employee_name ?? "Operator";
 
+  // Page layout: breadcrumb, header, sidebar tabs, and the active panel.
   return (
     <div className="min-h-full bg-surface-base text-text-primary">
       <div className="mx-auto max-w-[1440px] px-6 py-6 md:px-9">
@@ -93,15 +102,13 @@ export default function SettingsView() {
           </nav>
 
           <section className="min-w-0">
+            {/* Render the panel for the selected tab. */}
             {tab === "appearance" && <AppearancePanel />}
             {tab === "profile" && <ProfilePanel name={name} />}
             {tab === "notifications" && <NotificationsPanel />}
             {tab === "account" && (
               <AccountPanel
-                onLogout={() => {
-                  logout();
-                  router.push("/login");
-                }}
+                onLogout={() => requestLogout()}
               />
             )}
           </section>
@@ -110,44 +117,58 @@ export default function SettingsView() {
     </div>
   );
 }
-
+// persisting selections to localStorage and the document attributes.
 function AppearancePanel() {
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const [accent, setAccentState] = useState<Accent>("indigo");
-  const [reduceMotion, setReduceMotion] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  // Persisted accent, read lazily from localStorage so the first client render
+  // matches what the inline script already applied (no cascading effect).
+  const [accent, setAccent] = useState<Accent>(() =>
+    typeof window !== "undefined"
+      ? ((localStorage.getItem("app-accent") as Accent) ?? "indigo")
+      : "indigo"
+  );
+  // Active preset design id. Classic is the default when nothing is persisted.
+  const [themeDesign, setThemeDesign] = useState<ThemeDesignId>(() =>
+    typeof window !== "undefined"
+      ? isThemeDesignId(localStorage.getItem("theme-design"))
+        ? (localStorage.getItem("theme-design") as ThemeDesignId)
+        : "classic"
+      : "classic"
+  );
+  // Tracks client-side hydration so the active-design highlight is applied
+  // only after mount (false on the server, true on the client).
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+
+  // Mirror accent selection to the document + localStorage. Mutating external
+  // values is only allowed inside an effect, so the side effects live here.
+  useEffect(() => {
+    document.documentElement.dataset.accent = accent;
+    localStorage.setItem("app-accent", accent);
+  }, [accent]);
 
   useEffect(() => {
-    const storedAccent = (localStorage.getItem("app-accent") as Accent) ?? "indigo";
-    const storedMotion = localStorage.getItem("reduce-motion") === "true";
-    setAccentState(storedAccent);
-    setReduceMotion(storedMotion);
-    document.documentElement.dataset.accent = storedAccent;
-    document.documentElement.classList.toggle("reduce-motion", storedMotion);
-    setMounted(true);
-  }, []);
+    document.documentElement.dataset.themeDesign = themeDesign;
+    localStorage.setItem("theme-design", themeDesign);
+  }, [themeDesign]);
 
-  function setAccent(next: Accent) {
-    setAccentState(next);
-    localStorage.setItem("app-accent", next);
-    document.documentElement.dataset.accent = next;
-  }
-
-  function toggleReduceMotion() {
-    const next = !reduceMotion;
-    setReduceMotion(next);
-    localStorage.setItem("reduce-motion", String(next));
-    document.documentElement.classList.toggle("reduce-motion", next);
+  // Applies a full preset design: sets the design, mode, and accent.
+  function applyThemeDesign(design: ThemeDesign) {
+    setThemeDesign(design.id);
+    setTheme(design.mode);
+    setAccent(design.accent);
   }
 
   function reset() {
     setTheme("system");
     setAccent("indigo");
-    setReduceMotion(false);
-    localStorage.setItem("reduce-motion", "false");
-    document.documentElement.classList.remove("reduce-motion");
+    setThemeDesign("classic");
   }
 
+  // Available theme modes with their display labels and icons.
   const themeOptions: { value: typeof theme; label: string; icon: typeof Sun }[] =
     [
       { value: "light", label: "Light", icon: Sun },
@@ -155,8 +176,18 @@ function AppearancePanel() {
       { value: "system", label: "System", icon: Monitor },
     ];
 
+  // Resolves the active design id only while it still matches mode + accent.
+  const activeDesignId =
+    themeDesign &&
+    THEME_DESIGNS.find(
+      (d) => d.id === themeDesign && d.mode === resolvedTheme && d.accent === accent
+    )
+      ? themeDesign
+      : null;
+
   return (
     <div className="space-y-6">
+      {/* Theme mode selection (light / dark / system). */}
       <Card
         title="Theme"
         description="Choose how QA-REY looks. System follows your device setting."
@@ -185,6 +216,63 @@ function AppearancePanel() {
         </p>
       </Card>
 
+      {/* One-tap complete theme designs. */}
+      <Card
+        title="Themes Design"
+        description="Apply a complete look in one tap — it sets the mode, accent, and surface palette together. Fine-tune with the options below."
+      >
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {THEME_DESIGNS.map((design) => {
+            const active = mounted && activeDesignId === design.id;
+            return (
+              <button
+                key={design.id}
+                onClick={() => applyThemeDesign(design)}
+                aria-pressed={active}
+                className={`flex flex-col gap-3 rounded-xl border p-3 text-left transition ${
+                  active
+                    ? "border-app-accent bg-app-accent-soft"
+                    : "border-border-default bg-card hover:bg-surface-overlay"
+                }`}
+              >
+                <span
+                  className="flex h-14 items-end justify-between rounded-lg border p-2"
+                  style={{
+                    backgroundColor: design.preview,
+                    borderColor: active ? ACCENT_HEX[design.accent] : "transparent",
+                  }}
+                >
+                  <span
+                    className="h-3.5 w-3.5 rounded-full"
+                    style={{ backgroundColor: ACCENT_HEX[design.accent] }}
+                  />
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-wide"
+                    style={{
+                      color: design.mode === "dark" ? "#E4E7EC" : "#1C1D20",
+                    }}
+                  >
+                    {design.mode}
+                  </span>
+                </span>
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-[13px] font-semibold text-text-primary">
+                    {design.name}
+                  </span>
+                  {active && (
+                    <Check className="h-4 w-4 shrink-0 text-app-accent" />
+                  )}
+                </span>
+                <span className="text-[11px] leading-snug text-text-muted">
+                  {design.description}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* Accent color picker. */}
       <Card
         title="Accent color"
         description="Personalize highlights, buttons, and active states across the app."
@@ -210,18 +298,6 @@ function AppearancePanel() {
         </div>
       </Card>
 
-      <Card
-        title="Motion"
-        description="Reduce interface animations and transitions."
-      >
-        <ToggleRow
-          label="Reduce motion"
-          description="Disable non-essential animations throughout the app."
-          checked={reduceMotion}
-          onChange={toggleReduceMotion}
-        />
-      </Card>
-
       <button
         onClick={reset}
         className="inline-flex items-center gap-2 rounded-lg border border-border-default bg-card px-4 py-2.5 text-[13px] font-semibold text-text-secondary transition hover:bg-surface-overlay"
@@ -233,18 +309,25 @@ function AppearancePanel() {
   );
 }
 
+// Profile panel: lets the user update their photo and review account details.
 function ProfilePanel({ name }: { name: string }) {
   const { user, updateUser } = useAuth();
+  // Hidden file input that opens the OS photo picker.
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Preview of the newly chosen avatar before it is saved.
   const [avatarImage, setAvatarImage] = useState<string | null>(
     user?.avatar_url ?? null
   );
+  // Source image handed to the crop modal, or null when the modal is closed.
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  // True while the avatar upload request is in flight.
   const [avatarSaving, setAvatarSaving] = useState(false);
+  // Error message returned from the avatar save request, if any.
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
   if (!user) return null;
 
+  // Up-to-two-letter initials used for the fallback avatar.
   const initials = name
     .split(" ")
     .map((w) => w.charAt(0))
@@ -252,8 +335,10 @@ function ProfilePanel({ name }: { name: string }) {
     .slice(0, 2)
     .toUpperCase();
 
+  // Avatar to render: new upload first, then saved URL, then none.
   const displayedAvatar = avatarImage ?? user?.avatar_url ?? null;
 
+  // Reads the picked file as a data URL and opens the crop modal.
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -263,6 +348,7 @@ function ProfilePanel({ name }: { name: string }) {
     event.target.value = "";
   }
 
+  // Uploads the cropped avatar to the API and updates the session user.
   async function handleAvatarSave(dataUrl: string) {
     setAvatarSaving(true);
     setAvatarError(null);
@@ -288,6 +374,7 @@ function ProfilePanel({ name }: { name: string }) {
     }
   }
 
+  // Assigned accounts rendered as chips in the profile details list.
   const accounts = user.accounts ?? [];
 
   return (
@@ -334,7 +421,7 @@ function ProfilePanel({ name }: { name: string }) {
         <dl className="divide-y divide-border-subtle">
           <Field label="Full name" value={user.employee_name} />
           <Field label="Email" value={user.employee_email} />
-          <Field label="Employee ID" value={user.employee_id} />
+          <Field label="Employee code" value={user.employee_code} />
           <Field label="Role" value={user.role_name || user.role} />
           <Field label="Primary account" value={user.account} />
           <div className="flex items-center justify-between gap-4 py-3">
@@ -388,26 +475,32 @@ function ProfilePanel({ name }: { name: string }) {
   );
 }
 
+// Notifications panel: toggles for email, desktop, digest, and reminder prefs.
 function NotificationsPanel() {
-  const [prefs, setPrefs] = useState({
-    emailAlerts: true,
-    desktopAlerts: false,
-    weeklyDigest: true,
-    evaluationReminders: true,
-  });
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
+  // Notification preferences, persisted to localStorage on this device and
+  // read lazily so the first render already reflects stored values.
+  const [prefs, setPrefs] = useState(() => {
+    const defaults = {
+      emailAlerts: true,
+      desktopAlerts: false,
+      weeklyDigest: true,
+      evaluationReminders: true,
+    };
+    if (typeof window === "undefined") return defaults;
     const stored = localStorage.getItem("notification-prefs");
-    if (stored) {
-      try {
-        setPrefs({ ...prefs, ...JSON.parse(stored) });
-      } catch {
-        /* ignore malformed */
-      }
+    if (!stored) return defaults;
+    try {
+      return { ...defaults, ...JSON.parse(stored) };
+    } catch {
+      return defaults;
     }
-    setMounted(true);
-  }, []);
+  });
+  // Tracks client-side hydration so persisted prefs render only after mount.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   function update(key: keyof typeof prefs, value: boolean) {
     const next = { ...prefs, [key]: value };
@@ -450,6 +543,7 @@ function NotificationsPanel() {
   );
 }
 
+// Account panel: shows session details and the sign-out action.
 function AccountPanel({ onLogout }: { onLogout: () => void }) {
   const { user } = useAuth();
   if (!user) return null;
@@ -477,6 +571,7 @@ function AccountPanel({ onLogout }: { onLogout: () => void }) {
   );
 }
 
+// Reusable card wrapper used to group each settings section.
 function Card({
   title,
   description,
@@ -497,6 +592,7 @@ function Card({
   );
 }
 
+// Key/value row used inside the profile and account detail lists.
 function Field({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3">
@@ -508,6 +604,7 @@ function Field({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
+// Switch row used for each notification preference.
 function ToggleRow({
   label,
   description,

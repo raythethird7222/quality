@@ -1,3 +1,6 @@
+// Shared domain types and constant enumerations (accounts, roles, accents,
+// and the authenticated user shape) used across the application.
+
 export const ACCOUNT_KEYS = [
   "js",
   "dft",
@@ -43,9 +46,10 @@ export type AccountAssignment = {
 };
 
 export type AuthUser = {
+  employee_id: number;
   employee_name: string;
   employee_email: string;
-  employee_id: string;
+  employee_code: string;
   account: AccountLabel;
   account_name: string;
   role: UserRole;
@@ -67,6 +71,7 @@ export type TeamMember = {
   name: string;
   initial: string;
   agents: number;
+  employeeId?: number;
 };
 
 export type AgentPerformance = {

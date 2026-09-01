@@ -1,5 +1,6 @@
 "use client";
 
+// Manager dashboard view: account overview with QA team stats and member cards.
 import Link from "next/link";
 import { BarChart3, LineChart, ShieldCheck, UsersRound } from "lucide-react";
 import Breadcrumb from "@/components/shared/Breadcrumb";
@@ -7,6 +8,7 @@ import { getAccentColors } from "@/features/accounts/config";
 import { useAccent } from "@/features/settings/useAccent";
 import type { TeamMember } from "@/types";
 
+// Props for the manager dashboard: account name, counts, and QA member list.
 type ManagerDashboardProps = {
   account: string;
   agents: number;
@@ -14,13 +16,16 @@ type ManagerDashboardProps = {
   members: TeamMember[];
 };
 
+// Main manager dashboard: renders account header, summary stats, and QA member grid.
 export default function ManagerDashboard({
   account,
   agents,
   qaCount,
   members,
 }: ManagerDashboardProps) {
+  // Normalize account name into a URL-safe slug for navigation links.
   const unit = account.toLowerCase();
+  // Resolve the active theme accent and its mapped color utility classes.
   const selectedAccent = useAccent();
   const a = getAccentColors(selectedAccent);
 
@@ -80,6 +85,7 @@ export default function ManagerDashboard({
             </div>
           ) : (
             <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* Map each QA team member to a profile card with agent count and link */}
               {members.map((member, i) => {
                 const m = a;
                 return (
@@ -115,7 +121,7 @@ export default function ManagerDashboard({
                     </p>
                     <div className="mt-auto pt-3">
                       <Link
-                        href={`/accounts/${unit}/dashboard`}
+                        href={`/accounts/${unit}/dashboard?qaId=${member.employeeId}`}
                         className={`flex items-center justify-center gap-2 rounded-lg border ${m.border} bg-card px-3 py-2.5 text-[13px] font-semibold ${m.text} transition ${m.hoverBg}`}
                       >
                         <LineChart className="h-4 w-4" />
@@ -133,6 +139,8 @@ export default function ManagerDashboard({
   );
 }
 
+// Compact stat tile used in the dashboard summary header.
+// Props for the compact stat tile.
 function StatCard({
   label,
   value,

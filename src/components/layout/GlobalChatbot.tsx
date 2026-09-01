@@ -1,118 +1,191 @@
 "use client";
 
+// GlobalChatbot: floating QA-REY agent with a scripted scenario engine and chat UI.
 import { useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   X,
   Send,
   Sparkles,
-  Search,
-  FileText,
-  BarChart3,
-  Users,
-  CheckCircle2,
-  Loader2,
   Bot,
-  type LucideIcon,
+  ArrowRight,
 } from "lucide-react";
+import { useAccentHex } from "@/features/settings/useAccent";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { ACCOUNTS } from "@/features/accounts/config";
 import { DotLottieReact } from "@lottiefiles/dotlottie-react";
 
+// Remote Lottie animation source used for the floating chathead.
 const LOTTIE_SRC =
-  "https://lottie.host/28a5afce-7ea1-4091-a3fc-d6ac1d15ddfd/EjSZ1LetQ3.json";
+  "https://lottie.host/ce930c93-4dc8-4e7f-add1-71991673ba89/0pxGadRyQW.json";
 
-type FeedItem =
-  | { kind: "message"; id: number; role: "user" | "bot"; text: string }
-  | {
-      kind: "step";
-      id: number;
-      label: string;
-      icon: LucideIcon;
-      status: "running" | "done";
-    };
+/* -------------------------------------------------------------------------- */
+/*  Static scenario engine                                                    */
+/*  Replace this block with a real Agent backend later.                       */
+/* -------------------------------------------------------------------------- */
 
-type Tool = {
-  id: string;
+type AgentAction = {
   label: string;
   description: string;
-  icon: LucideIcon;
-  prompt: string;
+  /** Returns the destination route for the current user context. */
+  route: (ctx: { accountKey: string }) => string;
 };
 
-const TOOLS: Tool[] = [
+// A single scripted conversation scenario matched by user keywords.
+type Scenario = {
+  id: string;
+  keywords: string[];
+  text: string;
+  action?: AgentAction;
+};
+
+const SCENARIOS: Scenario[] = [
   {
-    id: "evaluate",
-    label: "Evaluate Agent",
-    description: "Pull a roster agent and draft an evaluation.",
-    icon: Search,
-    prompt: "Run an agent evaluation for the selected roster member.",
+    id: "score-low",
+    keywords: ["score low", "why is my", "low score", "why am i"],
+    text: "Your current QA score is 84%, which is 5% lower than your previous period. The biggest decline is in Compliance, where several recent evaluations show recurring issues.",
+    action: {
+      label: "Review My Evaluations",
+      description: "Review your recent evaluations",
+      route: ({ accountKey }) => `/accounts/${accountKey}/roster`,
+    },
   },
   {
-    id: "trends",
-    label: "Summarize Trends",
-    description: "Analyze recent scorecard trends.",
-    icon: BarChart3,
-    prompt: "Summarize quality trends across my team this month.",
+    id: "performance",
+    keywords: ["performance", "performing", "how am i", "analyze my performance"],
+    text: "Your current QA score is 87%. Your performance improved compared with the previous period, but Compliance remains your lowest-performing category.",
+    action: {
+      label: "View Performance",
+      description: "Open your performance analytics",
+      route: ({ accountKey }) => `/accounts/${accountKey}/analytics`,
+    },
   },
   {
-    id: "coaching",
-    label: "Coaching Gaps",
-    description: "Find the biggest improvement areas.",
-    icon: Users,
-    prompt: "What are the top coaching gaps for my team?",
+    id: "evaluations",
+    keywords: ["evaluation", "evaluations", "recent eval"],
+    text: "You have 8 recent evaluations. Your latest evaluation has a score of 91%.",
+    action: {
+      label: "View Evaluations",
+      description: "Open your evaluations list",
+      route: ({ accountKey }) => `/accounts/${accountKey}/roster`,
+    },
   },
   {
-    id: "report",
-    label: "Generate Report",
-    description: "Build a shareable QA report.",
-    icon: FileText,
-    prompt: "Generate a QA performance report for leadership.",
+    id: "improve",
+    keywords: ["improve", "coaching", "insight", "what should i"],
+    text: "Your most frequent issue is Compliance. Several recent evaluations contain similar findings.",
+    action: {
+      label: "View Coaching Insights",
+      description: "Explore coaching insights and recommendations",
+      route: () => `/coaching-insights`,
+    },
+  },
+  {
+    id: "rm-account",
+    keywords: ["rm account", "rm ", "account performing", "rm dashboard"],
+    text: "RM currently has an average QA score of 89%. Compliance is currently the lowest-performing category.",
+    action: {
+      label: "Open RM Dashboard",
+      description: "Open the RM account dashboard",
+      route: () => `/accounts/rm/dashboard`,
+    },
+  },
+  {
+    id: "team",
+    keywords: ["team", "analytics", "team performance"],
+    text: "The team currently has an average QA score of 88%. Three agents are currently below the target score.",
+    action: {
+      label: "Open Team Analytics",
+      description: "Open team analytics",
+      route: ({ accountKey }) => `/accounts/${accountKey}/analytics`,
+    },
   },
 ];
 
-const SUGGESTIONS = [
-  "How do I start an evaluation?",
-  "Show my team's scorecard",
-  "What counts as a fatal error?",
-];
-
-const WELCOME: FeedItem = {
-  kind: "message",
-  id: 0,
-  role: "bot",
-  text: "Hi, I'm QA-REY Agent. I can evaluate agents, analyze trends, spot coaching gaps, and draft reports. Pick a tool or ask me anything.",
+const FALLBACK = {
+  text: "I'm currently focused on helping with QA performance, evaluations, coaching insights, and analytics.",
 };
 
-function getAgentReply(text: string): string {
-  const t = text.toLowerCase();
-  if (t.includes("fatal")) {
-    return "A fatal error is any single failure that automatically fails the evaluation regardless of score — e.g. compliance breaches, data exposure, or policy violations. They're tracked separately from weighted criteria.";
-  }
-  if (t.includes("scorecard") || t.includes("dashboard")) {
-    return "Your team scorecard lives under the account dashboard. It shows average scores, fatal-error rate, and trend lines per evaluator. Want me to summarize it?";
-  }
-  if (t.includes("evaluation") || t.includes("evaluate")) {
-    return "To start an evaluation: open a roster member, choose 'New Evaluation', score each criterion, then flag any fatal errors. I can pre-fill a draft if you pick 'Evaluate Agent' above.";
-  }
-  if (t.includes("report")) {
-    return "I can assemble a leadership report with averages, fatal rates, and top coaching gaps. Tap 'Generate Report' and I'll draft it here.";
-  }
-  return "Got it. As your QA agent I can take action on evaluations, analytics, and coaching. Try one of the tools above or rephrase your request.";
+const SUGGESTED_PROMPTS = [
+  "Analyze my performance",
+  "Show my evaluations",
+  "What should I improve?",
+  "Show team performance",
+];
+
+// Resolves an account key from a user-facing account label, defaulting to "rm".
+function accountKeyFromLabel(label?: string): string {
+  if (!label) return "rm";
+  const entry = Object.entries(ACCOUNTS).find(([, v]) => v.label === label);
+  return entry ? entry[0] : "rm";
 }
 
+// Matches a user input string against scenario keywords, returning the first hit.
+function matchScenario(input: string): Scenario | null {
+  const t = input.toLowerCase();
+  for (const s of SCENARIOS) {
+    if (s.keywords.some((k) => t.includes(k))) return s;
+  }
+  return null;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  UI types                                                                  */
+/* -------------------------------------------------------------------------- */
+
+type FeedItem =
+  | { kind: "message"; id: number; role: "user" | "agent"; text: string; action?: object }
+  | { kind: "typing"; id: number };
+
+// Main chatbot component: renders the chathead and the conversation panel.
 export default function GlobalChatbot() {
+  // Current route path, used to hide the bot on the login screen.
   const pathname = usePathname();
+  // Router used to navigate to recommended routes.
+  const router = useRouter();
+  // Authenticated user, providing the account context for routing.
+  const { user } = useAuth();
+  // Active accent color applied to the chatbot UI.
+  const accentHex = useAccentHex();
+
+  // Tracks whether the conversation panel is expanded.
   const [open, setOpen] = useState(false);
-  const [feed, setFeed] = useState<FeedItem[]>([WELCOME]);
+  // Holds the ordered list of chat messages and typing indicators.
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  // Holds the current text in the input box.
   const [input, setInput] = useState("");
+  // Tracks whether the agent is "thinking" to block duplicate sends.
   const [busy, setBusy] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  // Panel height — user-adjustable via drag handle.
+  const [panelHeight, setPanelHeight] = useState(48 * 16);
+  const dragRef = useRef<{ startY: number; startH: number } | null>(null);
+  // Ref to the scrollable message body for auto-scrolling.
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Monotonic counter for assigning unique ids to feed items.
   const idRef = useRef(1);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // Begin resizing the panel height from a pointer drag.
+  function handleResizeStart(e: React.PointerEvent) {
+    e.preventDefault();
+    dragRef.current = { startY: e.clientY, startH: panelHeight };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
 
+  // Update panel height while dragging (pointer down + moving).
+  function handleResizeMove(e: React.PointerEvent) {
+    if (!dragRef.current) return;
+    const delta = dragRef.current.startY - e.clientY;
+    const next = Math.min(48 * 16, Math.max(24 * 16, dragRef.current.startH + delta));
+    setPanelHeight(next);
+  }
+
+  // End the drag resize session.
+  function handleResizeEnd(e: React.PointerEvent) {
+    dragRef.current = null;
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+  }
+
+  // Auto-scrolls the message body to the bottom when feed or panel changes.
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
@@ -120,81 +193,64 @@ export default function GlobalChatbot() {
     });
   }, [feed, open]);
 
+  // Hide the chatbot entirely on the login route.
   const isLogin = pathname === "/login";
-  if (!mounted || isLogin) return null;
+  if (isLogin) return null;
 
+  const accountKey = accountKeyFromLabel(user?.account);
+
+  // Generates a monotonic id for feed items.
   function nextId() {
     return idRef.current++;
   }
 
-  function updateStep(id: number, status: "running" | "done") {
-    setFeed((prev) =>
-      prev.map((item) =>
-        item.kind === "step" && item.id === id ? { ...item, status } : item
-      )
-    );
-  }
+  // Runs the scripted agent: appends the user message, then a delayed reply.
+  function runAgent(rawText: string) {
+    const text = rawText.trim();
+    if (!text || busy) return;
 
-  function runAgent(task: string, toolLabel?: string) {
-    if (busy) return;
     setBusy(true);
-
-    const userMsg: FeedItem = {
-      kind: "message",
-      id: nextId(),
-      role: "user",
-      text: task,
-    };
-    setFeed((prev) => [...prev, userMsg]);
-
-    const thinkId = nextId();
-    const toolId = nextId();
-
+    setInput("");
     setFeed((prev) => [
       ...prev,
-      {
-        kind: "step",
-        id: thinkId,
-        label: "Planning response",
-        icon: Sparkles,
-        status: "running",
-      },
+      { kind: "message", id: nextId(), role: "user", text },
+      { kind: "typing", id: nextId() },
     ]);
 
+    // Simulated "analyzing" delay — no real AI/backend.
     window.setTimeout(() => {
-      updateStep(thinkId, "done");
-      setFeed((prev) => [
-        ...prev,
-        {
-          kind: "step",
-          id: toolId,
-          label: toolLabel ? `Running: ${toolLabel}` : "Retrieving context",
-          icon: toolLabel ? FileText : Search,
-          status: "running",
-        },
-      ]);
+      const scenario = matchScenario(text);
+      const replyText = scenario ? scenario.text : FALLBACK.text;
+      const action = scenario?.action
+        ? {
+            ...scenario.action,
+            href: scenario.action.route({ accountKey }),
+          }
+        : undefined;
 
-      window.setTimeout(() => {
-        updateStep(toolId, "done");
-        const botMsg: FeedItem = {
-          kind: "message",
-          id: nextId(),
-          role: "bot",
-          text: getAgentReply(task),
-        };
-        setFeed((prev) => [...prev, botMsg]);
-        setBusy(false);
-      }, 900);
-    }, 700);
+      setFeed((prev) => {
+        const withoutTyping = prev.filter((i) => i.kind !== "typing");
+        return [
+          ...withoutTyping,
+          {
+            kind: "message",
+            id: nextId(),
+            role: "agent",
+            text: replyText,
+            action,
+          },
+        ];
+      });
+      setBusy(false);
+    }, 900);
   }
 
+  // Sends the current input text to the agent.
   function send() {
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput("");
-    runAgent(text);
+    runAgent(input);
   }
 
+  // Submits the message when Enter is pressed.
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -202,145 +258,231 @@ export default function GlobalChatbot() {
     }
   }
 
+  // Closes the panel and navigates to the recommended destination route.
+  function go(href: string) {
+    setOpen(false);
+    router.push(href);
+  }
+
+  const showWelcome = feed.length === 0;
+
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-3">
+    <div
+      className="fixed inset-x-4 bottom-4 z-50 flex flex-col items-end gap-3 sm:inset-x-auto sm:right-4"
+      style={{ ["--agent-accent" as string]: accentHex } as React.CSSProperties}
+    >
       {open && (
-        <div className="flex h-[32rem] w-96 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-          <div className="flex items-center justify-between border-b border-border bg-primary px-4 py-3">
+        <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:w-[28rem]" style={{ height: panelHeight }}>
+          {/* Resize handle */}
+          <div
+            onPointerDown={handleResizeStart}
+            onPointerMove={handleResizeMove}
+            onPointerUp={handleResizeEnd}
+            className="flex h-3 cursor-ns-resize items-center justify-center border-b border-border bg-surface-raised/50 hover:bg-surface-raised"
+          >
+            <span className="block h-[3px] w-10 rounded-full bg-border-default" />
+          </div>
+          {/* Header */}
+          <div
+            className="flex items-center justify-between px-4 py-3"
+            style={{ background: accentHex }}
+          >
             <div className="flex items-center gap-2">
-              <DotLottieReact
-                src={LOTTIE_SRC}
-                autoplay
-                loop
-                className="h-10 w-10"
-                style={{ background: "transparent" }}
-              />
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15">
+                <Sparkles size={18} className="text-white" />
+              </div>
               <div className="leading-tight">
-                <p className="text-sm font-semibold text-primary-foreground">
-                  QA-REY Agent
-                </p>
-                <p className="flex items-center gap-1 text-[11px] text-primary-foreground/70">
+                <p className="text-sm font-semibold text-white">QA-REY Agent</p>
+                <p className="flex items-center gap-1 text-[11px] text-white/70">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                  Active
+                  Ready to assist
                 </p>
               </div>
             </div>
             <button
               onClick={() => setOpen(false)}
               aria-label="Close agent"
-              className="rounded-md p-1 text-primary-foreground/80 transition hover:bg-primary-foreground/10 hover:text-primary-foreground"
+              className="rounded-md p-1 text-white/80 transition hover:bg-white/10 hover:text-white"
             >
               <X size={18} />
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 border-b border-border bg-background/60 p-3">
-            {TOOLS.map((tool) => {
-              const Icon = tool.icon;
-              return (
-                <button
-                  key={tool.id}
-                  onClick={() => runAgent(tool.prompt, tool.label)}
-                  disabled={busy}
-                  title={tool.description}
-                  className="flex items-start gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-left transition hover:border-primary hover:bg-muted disabled:opacity-50"
-                >
-                  <Icon size={16} className="mt-0.5 shrink-0 text-primary" />
-                  <span className="text-[11px] font-medium leading-tight text-foreground">
-                    {tool.label}
-                  </span>
-                </button>
-              );
-            })}
+          {/* Subtitle */}
+          <div className="border-b border-border bg-background/60 px-4 py-2">
+            <p className="text-[11px] text-muted-foreground">
+              Your intelligent QA assistant
+            </p>
           </div>
 
+          {/* Body */}
           <div
             ref={scrollRef}
-            className="flex-1 space-y-3 overflow-y-auto p-4"
+            className="flex-1 space-y-4 overflow-y-auto p-4"
           >
-            {feed.map((item) => {
-              if (item.kind === "message") {
-                return (
-                  <div
-                    key={item.id}
-                    className={`flex ${
-                      item.role === "user" ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm ${
-                        item.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-foreground"
-                      }`}
+            {showWelcome ? (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <div
+                  className="mb-3 flex h-12 w-12 items-center justify-center rounded-full"
+                  style={{ background: `${accentHex}1a`, color: accentHex }}
+                >
+                  <Bot size={24} />
+                </div>
+                <h3 className="text-base font-semibold text-foreground">
+                  How can I help you today?
+                </h3>
+                <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+                  Ask me about your performance, evaluations, coaching insights,
+                  or QA-REY analytics.
+                </p>
+                <div className="mt-5 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+                  {/* Suggested prompt chips that launch scripted scenarios. */}
+                  {SUGGESTED_PROMPTS.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => runAgent(p)}
+                      disabled={busy}
+                      className="rounded-xl border border-border bg-background px-3 py-2.5 text-left text-sm font-medium text-foreground transition hover:border-[var(--agent-accent)] hover:bg-muted disabled:opacity-50"
                     >
-                      {item.text}
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              feed.map((item) => {
+                // Renders the animated "agent is typing" indicator.
+                if (item.kind === "typing") {
+                  return (
+                    <div key={item.id} className="flex items-start gap-2">
+                      <div
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                        style={{
+                          background: `${accentHex}1a`,
+                          color: accentHex,
+                        }}
+                      >
+                        <Bot size={15} />
+                      </div>
+                      <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-muted px-4 py-3">
+                        <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.3s]" />
+                        <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.15s]" />
+                        <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60" />
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Renders a user message, right-aligned and accent-filled.
+                if (item.role === "user") {
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex justify-end"
+                    >
+                      <div
+                        className="max-w-[82%] rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white"
+                        style={{ background: accentHex }}
+                      >
+                        {item.text}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Agent message
+                const action = item.action as
+                  | (AgentAction & { href: string })
+                  | undefined;
+                return (
+                  <div key={item.id} className="flex items-start gap-2">
+                    <div
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                      style={{ background: `${accentHex}1a`, color: accentHex }}
+                    >
+                      <Bot size={15} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                        QA-REY Agent
+                      </p>
+                      <div className="rounded-2xl rounded-tl-sm bg-muted px-3 py-2 text-sm text-foreground">
+                        {item.text}
+                      </div>
+
+                       {action && (
+                        // Recommended action card with a CTA that navigates to a route.
+                        <div className="mt-2 rounded-xl border border-border border-l-4 bg-background p-3 pl-3 [border-left-color:var(--agent-accent)]">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Recommended
+                          </p>
+                          <p className="mt-0.5 text-sm text-foreground">
+                            {action.description}
+                          </p>
+                          <button
+                            onClick={() => go(action.href)}
+                            className="mt-2 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90"
+                            style={{ background: accentHex }}
+                          >
+                            {action.label}
+                            <ArrowRight size={15} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
-              }
-              const StepIcon = item.status === "running" ? Loader2 : CheckCircle2;
-              return (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-1.5 text-xs text-muted-foreground"
-                >
-                  <StepIcon
-                    size={14}
-                    className={
-                      item.status === "running"
-                        ? "animate-spin text-primary"
-                        : "text-green-500"
-                    }
-                  />
-                  <span>
-                    {item.label}
-                    {item.status === "running" ? "…" : " ✓"}
-                  </span>
-                </div>
-              );
-            })}
+              })
+            )}
           </div>
 
-          <div className="border-t border-border p-3">
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {SUGGESTIONS.map((s) => (
+          {/* Suggested prompts (compact, always available) */}
+          {!showWelcome && (
+            <div className="flex flex-wrap gap-1.5 border-t border-border px-3 py-2">
+              {/* Compact prompt chips kept visible during an active conversation. */}
+              {SUGGESTED_PROMPTS.map((p) => (
                 <button
-                  key={s}
-                  onClick={() => runAgent(s)}
+                  key={p}
+                  onClick={() => runAgent(p)}
                   disabled={busy}
-                  className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-primary hover:text-foreground disabled:opacity-50"
+                  className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-[var(--agent-accent)] hover:text-foreground disabled:opacity-50"
                 >
-                  {s}
+                  {p}
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-2">
-              <Bot size={18} className="shrink-0 text-primary" />
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder="Ask the agent or pick a tool…"
-                className="flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-              <button
-                onClick={send}
-                disabled={busy || !input.trim()}
-                aria-label="Send message"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-              >
-                <Send size={16} />
-              </button>
-            </div>
+          )}
+
+          {/* Input */}
+          {/* Composer row: accent bot icon, text field, and send button. */}
+          <div className="flex items-center gap-2 border-t border-border p-3">
+            <Bot size={18} className="shrink-0" style={{ color: accentHex }} />
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="Ask the QA-REY Agent…"
+              className="flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            <button
+              onClick={send}
+              disabled={busy || !input.trim()}
+              aria-label="Send message"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white transition hover:opacity-90 disabled:opacity-50"
+              style={{ background: accentHex }}
+            >
+              <Send size={16} />
+            </button>
           </div>
         </div>
       )}
 
+      {/* Chathead */}
+      {/* Floating launcher that toggles the conversation panel open/closed. */}
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Close agent" : "Open agent"}
-        className="group flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-transparent shadow-lg transition hover:scale-105"
+        className="group flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-transparent transition hover:scale-105"
       >
         <DotLottieReact
           src={LOTTIE_SRC}

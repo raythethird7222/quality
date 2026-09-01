@@ -1,22 +1,26 @@
 "use client";
 
+// Roster calendar view: agent monthly calendar with evaluation days and popup.
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
+import { useAccent } from "@/features/settings/useAccent";
 import { slugToDisplayName } from "@/lib/utils";
-import type { Accent, EvaluationDay } from "@/types";
+import { createBrowserClient } from "@/lib/supabase/client";
+import type { EvaluationDay } from "@/types";
+import type { AgentEvaluation } from "@/lib/db/quality";
 
+// Props for the roster calendar view.
 type RosterCalendarViewProps = {
   account: string;
   personName: string;
-  accent: Accent;
+  evaluations: AgentEvaluation[];
+  canEvaluate: boolean;
 };
 
-const evaluationDays: number[] = [];
-const evaluationDetails: Record<number, EvaluationDay> = {};
-
+// Month name labels used in the calendar header.
 const months = [
   "January",
   "February",
@@ -32,24 +36,102 @@ const months = [
   "December",
 ];
 
+// Main roster calendar view: header, month grid, legend, and day popup.
 export default function RosterCalendarView({
   account,
   personName,
-  accent,
+  evaluations: initialEvaluations,
+  canEvaluate,
 }: RosterCalendarViewProps) {
-  const [currentMonth, setCurrentMonth] = useState(7);
-  const [currentYear] = useState(2026);
+  // Index of the displayed month (0=Jan ... 11=Dec); starts on current month.
+  const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
+  // Year shown by the calendar.
+  const [currentYear] = useState(() => new Date().getFullYear());
+  // Day number for the open detail popup, or null when closed.
   const [popupDay, setPopupDay] = useState<number | null>(null);
+  // Live evaluations state — updated via Supabase Realtime.
+  const [evaluations, setEvaluations] =
+    useState<AgentEvaluation[]>(initialEvaluations);
   const router = useRouter();
-  const a = getAccentColors(accent);
+  const selectedAccent = useAccent();
+  const a = getAccentColors(selectedAccent);
 
-  const firstDay = new Date(currentYear, currentMonth, 1).getDay();
-  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-  const today = 15;
+  // Supabase Realtime: listen for INSERT/UPDATE/DELETE on rm_qa_evaluations
+  // so the calendar updates instantly when new evaluations come in.
+  useEffect(() => {
+    const supabase = createBrowserClient();
+    const channel = supabase
+      .channel("roster-evaluations")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "rm_qa_evaluations" },
+        () => {
+          // Re-fetch the full evaluation list for this agent on any change.
+          fetch(`/api/evaluations?account=${account}&agent=${personName}`)
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.evaluations) setEvaluations(data.evaluations);
+            })
+            .catch(console.error);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [account, personName]);
+
+  // Today's date for highlighting.
+  const todayDate = new Date();
+  const todayDay = todayDate.getDate();
+  const todayMonth = todayDate.getMonth();
+  const todayYear = todayDate.getFullYear();
 
   const displayName = slugToDisplayName(personName);
 
+  // Build lookup maps from evaluation data for the current month.
+  const { evaluationDays, evaluationDetails } = useMemo(() => {
+    const days = new Set<number>();
+    const details: Record<
+      number,
+      { evaluations: EvaluationDay[]; score: string }
+    > = {};
+
+    for (const ev of evaluations) {
+      if (!ev.evaluation_date) continue;
+      const parts = ev.evaluation_date.split("-");
+      if (parts.length < 3) continue;
+      const evYear = parseInt(parts[0], 10);
+      const evMonth = parseInt(parts[1], 10) - 1;
+      const evDay = parseInt(parts[2], 10);
+
+      if (evYear !== currentYear || evMonth !== currentMonth) continue;
+
+      days.add(evDay);
+
+      if (!details[evDay]) {
+        details[evDay] = { evaluations: [], score: "" };
+      }
+      details[evDay].evaluations.push({
+        time: ev.evaluation_date,
+        type: ev.guideline ?? "Evaluation",
+        score: ev.qa_score != null ? `${ev.qa_score}%` : "--",
+      });
+      // Show the latest score for the day badge.
+      if (ev.qa_score != null) {
+        details[evDay].score = `${ev.qa_score}%`;
+      }
+    }
+
+    return { evaluationDays: days, evaluationDetails: details };
+  }, [evaluations, currentMonth, currentYear]);
+
+  // Memoized grid of calendar cells (empty padding + real days) for the month.
   const calendarDays = useMemo(() => {
+    const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
     const emptyDays: { key: string; empty: true }[] = Array.from(
       { length: firstDay },
       (_, i) => ({ key: `empty-${i}`, empty: true })
@@ -60,14 +142,13 @@ export default function RosterCalendarView({
         key: `day-${day}`,
         day,
         empty: false as const,
-        isToday: day === today && currentMonth === 7,
-        hasEvaluation:
-          currentMonth === 7 && evaluationDays.includes(day),
+        today: day === todayDay && currentMonth === todayMonth && currentYear === todayYear,
+        hasEvaluation: evaluationDays.has(day),
         detail: evaluationDetails[day],
       };
     });
     return [...emptyDays, ...realDays];
-  }, [firstDay, daysInMonth, currentMonth]);
+  }, [currentMonth, currentYear, evaluationDays, evaluationDetails, todayDay, todayMonth, todayYear]);
 
   return (
     <div className="min-h-full bg-surface-base text-text-primary">
@@ -79,7 +160,7 @@ export default function RosterCalendarView({
             { label: account.toUpperCase(), href: `/accounts/${account}` },
             { label: displayName },
           ]}
-          accent={accent}
+          accent={selectedAccent}
         />
 
         {/* Header */}
@@ -102,14 +183,14 @@ export default function RosterCalendarView({
         </div>
 
         {/* Calendar Card */}
-        <div className="overflow-hidden rounded-2xl border border-border-default bg-card shadow-sm">
+        <div className={`overflow-hidden rounded-2xl border ${a.border} bg-card shadow-sm`}>
           {/* Month Header */}
-          <div className="flex items-center justify-between border-b border-border-subtle bg-surface-raised/50 px-6 py-4">
+          <div className={`flex items-center justify-between border-b border-border-subtle bg-surface-raised/50 px-6 py-4`}>
             <button
               onClick={() =>
                 setCurrentMonth((m) => (m === 0 ? 11 : m - 1))
               }
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-default bg-card text-text-muted transition hover:border-border-accent hover:text-text-primary hover:shadow-sm"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg border ${a.border} bg-card text-text-muted transition ${a.hoverBg} hover:text-text-primary hover:shadow-sm`}
             >
               <ChevronLeft size={16} />
             </button>
@@ -117,7 +198,7 @@ export default function RosterCalendarView({
               <h2 className="text-lg font-bold tracking-tight text-text-primary">
                 {months[currentMonth]}
               </h2>
-              <span className="rounded-md bg-surface-overlay px-2 py-0.5 text-[12px] font-semibold text-text-muted">
+              <span className={`rounded-md ${a.bgLight} px-2 py-0.5 text-[12px] font-semibold ${a.text}`}>
                 {currentYear}
               </span>
             </div>
@@ -125,7 +206,7 @@ export default function RosterCalendarView({
               onClick={() =>
                 setCurrentMonth((m) => (m === 11 ? 0 : m + 1))
               }
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-default bg-card text-text-muted transition hover:border-border-accent hover:text-text-primary hover:shadow-sm"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg border ${a.border} bg-card text-text-muted transition ${a.hoverBg} hover:text-text-primary hover:shadow-sm`}
             >
               <ChevronRight size={16} />
             </button>
@@ -163,14 +244,16 @@ export default function RosterCalendarView({
 
               const {
                 day,
-                isToday,
+                today: cellToday,
                 hasEvaluation,
                 detail,
               } = cell as {
                 day: number;
-                isToday: boolean;
+                today: boolean;
                 hasEvaluation: boolean;
-                detail: EvaluationDay | undefined;
+                detail:
+                  | { evaluations: EvaluationDay[]; score: string }
+                  | undefined;
               };
 
               return (
@@ -178,17 +261,17 @@ export default function RosterCalendarView({
                   key={cell.key}
                   onClick={() => setPopupDay(day)}
                   className={`group relative flex min-h-[90px] flex-col border-b border-r border-border-subtle/50 p-2.5 transition-all duration-150 ${
-                    isToday
+                    cellToday
                       ? `border-2 ${a.border} bg-card`
                       : hasEvaluation
                         ? "bg-card hover:shadow-md hover:z-10"
-                        : "bg-card hover:bg-surface-overlay/50"
+                        : `bg-card ${a.hoverBg}`
                   }`}
                 >
                   <div className="flex items-start justify-between">
                     <span
                       className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[12px] font-bold ${
-                        isToday
+                        cellToday
                           ? `${a.bgLight} ${a.text}`
                           : hasEvaluation
                             ? "text-text-primary"
@@ -197,7 +280,7 @@ export default function RosterCalendarView({
                     >
                       {day}
                     </span>
-                    {isToday && (
+                    {cellToday && (
                       <span className="rounded-full bg-brand-crimson px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
                         Today
                       </span>
@@ -254,57 +337,65 @@ export default function RosterCalendarView({
         >
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
           <div
-            className="relative w-full max-w-[400px] rounded-2xl border border-border-default bg-card shadow-2xl"
+            className={`relative w-full max-w-[400px] rounded-2xl border ${a.border} bg-card shadow-2xl`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={() => setPopupDay(null)}
-              className="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border border-border-default bg-card text-text-muted transition hover:bg-surface-overlay hover:text-text-primary"
+              className={`absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border ${a.border} bg-card text-text-muted transition ${a.hoverBg} hover:text-text-primary`}
             >
               <span className="text-[16px] leading-none">&times;</span>
             </button>
 
             <div className="border-b border-border-subtle px-6 py-4">
               <h2 className="text-[15px] font-bold text-text-primary">
-                Operational Action Parameter Required
+                Evaluations for {months[currentMonth]} {popupDay}
               </h2>
             </div>
 
             <div className="px-6 py-5">
-              {currentMonth === 7 && evaluationDetails[popupDay] ? (
+              {evaluationDetails[popupDay] ? (
                 <div className="space-y-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-                    Existing Evaluations
+                    Existing Evaluations ({evaluationDetails[popupDay].evaluations.length})
                   </p>
-                  <div className="rounded-lg border border-border-default bg-surface-raised p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span
-                          className={`flex-shrink-0 h-2 w-2 rounded-full ${a.bg}`}
-                        />
-                        <div className="min-w-0">
-                          <div
-                            className={`text-[14px] font-bold ${a.text}`}
-                          >
-                            {evaluationDetails[popupDay].score}
-                          </div>
-                          <div className="truncate text-[11px] text-text-secondary">
-                            {evaluationDetails[popupDay].type} &middot;{" "}
-                            {evaluationDetails[popupDay].time}
+                  <div className="max-h-[300px] space-y-2 overflow-y-auto">
+                    {evaluationDetails[popupDay].evaluations.map(
+                      (ev, i) => (
+                        <div
+                          key={i}
+                          className={`rounded-lg border ${a.border} bg-surface-raised p-3`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span
+                                className={`flex-shrink-0 h-2 w-2 rounded-full ${a.bg}`}
+                              />
+                              <div className="min-w-0">
+                                <div
+                                  className={`text-[14px] font-bold ${a.text}`}
+                                >
+                                  {ev.score}
+                                </div>
+                                <div className="truncate text-[11px] text-text-secondary">
+                                  {ev.type}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() =>
+                                router.push(
+                                  `/accounts/${account}/roster/${personName}/evaluation/eval-${account}-${popupDay}-${i}`
+                                )
+                              }
+                              className={`flex-shrink-0 rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition ${a.hoverBg}`}
+                            >
+                              View
+                            </button>
                           </div>
                         </div>
-                      </div>
-                      <button
-                        onClick={() =>
-                          router.push(
-                            `/accounts/${account}/roster/${personName}/evaluation/eval-${account}-cxl-${popupDay}-05aug2026-01`
-                          )
-                        }
-                        className={`flex-shrink-0 rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition ${a.hoverBg}`}
-                      >
-                        View
-                      </button>
-                    </div>
+                      )
+                    )}
                   </div>
                 </div>
               ) : (
@@ -312,6 +403,21 @@ export default function RosterCalendarView({
                   No evaluations found for this date.
                 </div>
               )}
+              <div className="mt-4 pt-4 border-t border-border-subtle">
+                {canEvaluate ? (
+                  <button
+                    onClick={() => router.push(`/accounts/${account}/roster/${personName}/evaluation/new?day=${popupDay}&month=${currentMonth}&year=${currentYear}`)}
+                    className={`inline-flex w-full items-center justify-center gap-2 rounded-lg ${a.bg} px-4 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90`}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Evaluate
+                  </button>
+                ) : (
+                  <p className="text-center text-[12px] text-text-muted">
+                    Read-Only Access — You are not the assigned Evaluator
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>

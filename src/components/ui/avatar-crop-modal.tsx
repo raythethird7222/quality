@@ -1,5 +1,6 @@
 "use client";
 
+// Modal that lets the user crop an uploaded image into a square avatar.
 import { useCallback, useState } from "react";
 import Cropper from "react-easy-crop";
 import type { Area, Point } from "react-easy-crop";
@@ -14,8 +15,10 @@ type AvatarCropModalProps = {
   onSave: (croppedDataUrl: string) => void;
 };
 
+// Target square dimensions (px) for the exported avatar image.
 const OUTPUT_SIZE = 400;
 
+// Loads an image element from a source URL, resolving once it is ready.
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -25,6 +28,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+// Crops the selected area and returns a resized JPEG data URL.
 async function getCroppedImage(
   imageSrc: string,
   pixelCrop: Area
@@ -51,6 +55,7 @@ async function getCroppedImage(
   return canvas.toDataURL("image/jpeg", 0.9);
 }
 
+// Avatar crop modal: interactive cropper with zoom and save/cancel actions.
 export default function AvatarCropModal({
   open,
   imageSrc,
@@ -59,10 +64,12 @@ export default function AvatarCropModal({
   onCancel,
   onSave,
 }: AvatarCropModalProps) {
+  // Crop position, zoom level, and the latest computed cropped pixel area.
   const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
+  // Captures the cropped pixel rectangle whenever the user adjusts the crop.
   const onCropComplete = useCallback(
     (_croppedArea: Area, croppedPixels: Area) => {
       setCroppedAreaPixels(croppedPixels);
@@ -70,8 +77,10 @@ export default function AvatarCropModal({
     []
   );
 
+  // Render nothing when the modal is closed.
   if (!open) return null;
 
+  // Persists the cropped image by generating a data URL and calling onSave.
   async function handleSave() {
     if (!croppedAreaPixels) return;
     try {
@@ -157,6 +166,7 @@ export default function AvatarCropModal({
             disabled={saving}
             className="inline-flex items-center gap-2 rounded-lg bg-brand-gold px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
+            {/* Show a spinner while saving, otherwise the save action */}
             {saving ? (
               <>
                 <Loader2 size={14} className="animate-spin" />

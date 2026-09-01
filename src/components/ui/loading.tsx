@@ -1,7 +1,9 @@
 "use client";
 
+// Shared loading indicators: spinner plus page and section placeholders.
 import { cn } from "@/lib/utils";
 
+// Reusable spinner with small/medium/large size variants.
 export function LoadingSpinner({
   size = "md",
   className,
@@ -27,6 +29,7 @@ export function LoadingSpinner({
   );
 }
 
+// Full-area page-level loading state with a large spinner and label.
 export function PageLoading() {
   return (
     <div className="flex min-h-[50vh] items-center justify-center">
@@ -38,6 +41,7 @@ export function PageLoading() {
   );
 }
 
+// Inline section loading state with an optional message.
 export function SectionLoading({ message }: { message?: string }) {
   return (
     <div className="flex items-center justify-center py-12">

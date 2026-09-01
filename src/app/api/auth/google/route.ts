@@ -1,12 +1,16 @@
+// API route: authenticates a user via Google OAuth by matching their email to an employee record.
 import { NextRequest, NextResponse } from "next/server";
 import { getEmployeeByEmail } from "@/lib/db/employees";
 import { buildAuthUserFromEmployee } from "@/lib/auth";
 
+// Handles the POST request for Google-based authentication and issues an auth cookie on success.
 export async function POST(request: NextRequest) {
   try {
+    // Parse the request body and normalize the email to lowercase for lookup.
     const body = await request.json();
     const email = String(body.email ?? "").trim().toLowerCase();
 
+    // Reject requests that do not include an email address.
     if (!email) {
       return NextResponse.json(
         { success: false, error: "Missing email" },
@@ -14,8 +18,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Look up the employee record matching the provided email.
     const employee = await getEmployeeByEmail(email);
 
+    // Deny access when no employee record matches the Google email.
     if (!employee) {
       return NextResponse.json(
         {
@@ -28,8 +34,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Build the authenticated user (with assignments) from the employee record.
     const user = await buildAuthUserFromEmployee(employee);
 
+    // Deny access when the employee has no valid account assignments.
     if (!user) {
       return NextResponse.json(
         {
@@ -41,6 +49,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (user.role === "agent") {
+      return NextResponse.json(
+        { success: false, error: "Invalid email or employee code" },
+        { status: 401 }
+      );
+    }
+
+    // Build the success response and attach the auth cookie.
     const response = NextResponse.json({ success: true, user });
 
     response.cookies.set("qa-rey-auth", JSON.stringify(user), {
@@ -52,6 +68,7 @@ export async function POST(request: NextRequest) {
     });
 
     return response;
+  // Catch any unexpected failures and return a generic server error.
   } catch (error) {
     console.error("Google auth error:", error);
     return NextResponse.json(
