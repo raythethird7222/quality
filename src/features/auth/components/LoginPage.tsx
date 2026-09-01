@@ -3,7 +3,6 @@
 // Login page: branded auth screen with credentials and Google sign-in.
 import { useEffect, useState } from "react";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import { createBrowserClient } from "@/lib/supabase/client";
 
 // Visual decoration element shapes rendered behind the login card.
 type Decoration =
@@ -209,6 +208,8 @@ export default function LoginPage() {
     setError("");
     setGoogleLoading(true);
     try {
+      // Lazy-load the browser Supabase client only when Google sign-in starts.
+      const { createBrowserClient } = await import("@/lib/supabase/client");
       const supabase = createBrowserClient();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",

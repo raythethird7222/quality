@@ -20,7 +20,7 @@ import Pagination, { paginate } from "@/components/ui/pagination";
 import { LoadingSpinner } from "@/components/ui/loading";
 import { getAccentColors } from "@/features/accounts/config";
 import { useAccent } from "@/features/settings/useAccent";
-import { createBrowserClient } from "@/lib/supabase/client";
+import { debounce } from "@/lib/debounce";
 import type { AgentPerformance } from "@/types";
 import type { AccountEvaluationRow } from "@/lib/db/quality";
 
@@ -238,22 +238,37 @@ export default function AccountFrameworkView({
   }, [fetchForDate]);
 
   useEffect(() => {
-    const supabase = createBrowserClient();
-    const channel = supabase
-      .channel("account-dashboard-evaluations")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "rm_qa_evaluations" },
-        () => {
-          if (dayFilterActiveRef.current) {
-            fetchRef.current(new Date(selectedDateRef.current));
-          }
+    let disposed = false;
+    let teardown: (() => void) | undefined;
+
+    void (async () => {
+      const { createBrowserClient } = await import("@/lib/supabase/client");
+      if (disposed) return;
+      const supabase = createBrowserClient();
+      // Coalesce bursts of realtime events into a single refetch.
+      const refetch = debounce(() => {
+        if (dayFilterActiveRef.current) {
+          fetchRef.current(new Date(selectedDateRef.current));
         }
-      )
-      .subscribe();
+      }, 300);
+
+      const channel = supabase
+        .channel("account-dashboard-evaluations")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "evaluations" },
+          refetch
+        )
+        .subscribe();
+
+      teardown = () => {
+        supabase.removeChannel(channel);
+      };
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      disposed = true;
+      teardown?.();
     };
   }, []);
 
@@ -663,6 +678,7 @@ export default function AccountFrameworkView({
               agentRows={agentRows}
               showQa
               showEval={false}
+              scope="coach"
             />
             <RosterPanel
               title="Evaluator Operational Allocations"
@@ -671,6 +687,7 @@ export default function AccountFrameworkView({
               qaName={qaName}
               people={evaluatorPeople}
               agentRows={agentRows}
+              scope="evaluator"
             />
           </div>
         </section>
@@ -724,6 +741,7 @@ function RosterPanel({
   agentRows,
   showQa = false,
   showEval = true,
+  scope = "evaluator",
 }: {
   title: string;
   description: string;
@@ -733,6 +751,7 @@ function RosterPanel({
   agentRows: AccountFrameworkViewProps["agentRows"];
   showQa?: boolean;
   showEval?: boolean;
+  scope?: "coach" | "evaluator";
 }) {
   const a = getAccentColors(useAccent());
   // Build a lookup of evaluator data keyed by agent name.
@@ -764,7 +783,7 @@ function RosterPanel({
             return (
               <Link
                 key={person.name}
-                href={`/accounts/${account}/roster/${slug}`}
+                href={`/accounts/${account}/roster/${slug}?scope=${scope}`}
                 className={`flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-raised px-3 py-2.5 text-[12px] transition hover:border-current ${a.text}`}
               >
                 <span className="font-medium text-text-primary">

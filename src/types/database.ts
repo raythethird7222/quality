@@ -155,7 +155,7 @@ export interface Database {
           lob_id?: number | null;
         };
       };
-      rm_qa_evaluations: {
+      evaluations: {
         Row: {
           evaluation_id: number;
           source_evaluation_id: string;
@@ -176,6 +176,7 @@ export interface Database {
           submission_datetime: string | null;
           edited_datetime: string | null;
           source_table: string;
+          checkbox_results: Json | null;
           created_at: string;
         };
         Insert: {
@@ -198,6 +199,7 @@ export interface Database {
           submission_datetime?: string | null;
           edited_datetime?: string | null;
           source_table: string;
+          checkbox_results?: Json | null;
           created_at?: string;
         };
         Update: {
@@ -220,42 +222,58 @@ export interface Database {
           submission_datetime?: string | null;
           edited_datetime?: string | null;
           source_table?: string;
+          checkbox_results?: Json | null;
           created_at?: string;
         };
       };
-      rm_qa_parameters: {
+      evaluation_parameters: {
         Row: {
-          parameter_id: number;
-          account_id: number;
-          lob_id: number | null;
+          id: number;
+          lob_name: string | null;
           guideline: string;
           attributes: string | null;
           clauses: string | null;
-          score: number | null;
+          score: string | null;
           compound: string | null;
           description: string | null;
+          account_id: number;
+          lob_id: number | null;
+          display_order: number | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
         };
         Insert: {
-          parameter_id?: number;
-          account_id: number;
-          lob_id?: number | null;
+          id?: number;
+          lob_name?: string | null;
           guideline: string;
           attributes?: string | null;
           clauses?: string | null;
-          score?: number | null;
+          score?: string | null;
           compound?: string | null;
           description?: string | null;
+          account_id: number;
+          lob_id?: number | null;
+          display_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
         };
         Update: {
-          parameter_id?: number;
-          account_id?: number;
-          lob_id?: number | null;
+          id?: number;
+          lob_name?: string | null;
           guideline?: string;
           attributes?: string | null;
           clauses?: string | null;
-          score?: number | null;
+          score?: string | null;
           compound?: string | null;
           description?: string | null;
+          account_id?: number;
+          lob_id?: number | null;
+          display_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
         };
       };
       rm_mqpm_performance: {
@@ -401,9 +419,9 @@ export type TablesInsert<T extends keyof Database["public"]["Tables"]> =
 export type TablesUpdate<T extends keyof Database["public"]["Tables"]> =
   Database["public"]["Tables"][T]["Update"];
 
-// Convenience aliases for the newly added quality tables.
-export type RmQaEvaluation = Tables<"rm_qa_evaluations">;
-export type RmQaParameter = Tables<"rm_qa_parameters">;
+// Convenience aliases for the quality tables.
+export type Evaluation = Tables<"evaluations">;
+export type EvaluationParameter = Tables<"evaluation_parameters">;
 export type RmCover = Tables<"rm_covers">;
 export type RmMqpmPerformance = Tables<"rm_mqpm_performance">;
 export type Status = Tables<"statuses">;

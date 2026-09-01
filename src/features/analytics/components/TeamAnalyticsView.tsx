@@ -50,7 +50,7 @@ import { LoadingSpinner } from "@/components/ui/loading";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
 import { useAccent, useAccentHex } from "@/features/settings/useAccent";
-import { createBrowserClient } from "@/lib/supabase/client";
+import { debounce } from "@/lib/debounce";
 
 /**
  * Props for the team analytics view.
@@ -282,24 +282,38 @@ export default function TeamAnalyticsView({
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   /**
-   * Supabase Realtime: listen for changes on rm_qa_evaluations
+   * Supabase Realtime: listen for changes on evaluations
    * and re-fetch analytics so charts stay live.
    */
   useEffect(() => {
-    const supabase = createBrowserClient();
-    const channel = supabase
-      .channel("analytics-evaluations")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "rm_qa_evaluations" },
-        () => {
-          fetchAnalytics();
-        }
-      )
-      .subscribe();
+    let disposed = false;
+    let teardown: (() => void) | undefined;
+
+    void (async () => {
+      const { createBrowserClient } = await import("@/lib/supabase/client");
+      if (disposed) return;
+      const supabase = createBrowserClient();
+      // Coalesce bursts of realtime events into a single refetch.
+      const refetch = debounce(() => {
+        fetchAnalytics();
+      }, 300);
+      const channel = supabase
+        .channel("analytics-evaluations")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "evaluations" },
+          refetch
+        )
+        .subscribe();
+
+      teardown = () => {
+        supabase.removeChannel(channel);
+      };
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      disposed = true;
+      teardown?.();
     };
   }, [fetchAnalytics]);
 

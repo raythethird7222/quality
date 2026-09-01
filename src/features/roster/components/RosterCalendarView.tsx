@@ -8,7 +8,7 @@ import Breadcrumb from "@/components/shared/Breadcrumb";
 import { getAccentColors } from "@/features/accounts/config";
 import { useAccent } from "@/features/settings/useAccent";
 import { slugToDisplayName } from "@/lib/utils";
-import { createBrowserClient } from "@/lib/supabase/client";
+import { debounce } from "@/lib/debounce";
 import type { EvaluationDay } from "@/types";
 import type { AgentEvaluation } from "@/lib/db/quality";
 
@@ -18,6 +18,7 @@ type RosterCalendarViewProps = {
   personName: string;
   evaluations: AgentEvaluation[];
   canEvaluate: boolean;
+  lobId?: number | null;
 };
 
 // Month name labels used in the calendar header.
@@ -42,6 +43,7 @@ export default function RosterCalendarView({
   personName,
   evaluations: initialEvaluations,
   canEvaluate,
+  lobId,
 }: RosterCalendarViewProps) {
   // Index of the displayed month (0=Jan ... 11=Dec); starts on current month.
   const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
@@ -56,29 +58,47 @@ export default function RosterCalendarView({
   const selectedAccent = useAccent();
   const a = getAccentColors(selectedAccent);
 
-  // Supabase Realtime: listen for INSERT/UPDATE/DELETE on rm_qa_evaluations
-  // so the calendar updates instantly when new evaluations come in.
+  // Supabase Realtime: listen for INSERT/UPDATE/DELETE on evaluations
+  // so the calendar updates instantly when new evaluations come in. The
+  // client is lazy-loaded so the ~230KB supabase-js chunk is not parsed on
+  // the initial render of this page.
   useEffect(() => {
-    const supabase = createBrowserClient();
-    const channel = supabase
-      .channel("roster-evaluations")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "rm_qa_evaluations" },
-        () => {
-          // Re-fetch the full evaluation list for this agent on any change.
-          fetch(`/api/evaluations?account=${account}&agent=${personName}`)
-            .then((res) => res.json())
-            .then((data) => {
-              if (data.evaluations) setEvaluations(data.evaluations);
-            })
-            .catch(console.error);
-        }
-      )
-      .subscribe();
+    let disposed = false;
+    let teardown: (() => void) | undefined;
+
+    void (async () => {
+      const { createBrowserClient } = await import("@/lib/supabase/client");
+      if (disposed) return;
+      const supabase = createBrowserClient();
+      // Coalesce bursts of realtime events into a single refetch.
+      const refetch = debounce(() => {
+        // Re-fetch the full evaluation list for this agent on any change.
+        // The API matches on employee_name, so send the display name.
+        fetch(`/api/evaluations?account=${account}&agent=${slugToDisplayName(personName)}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.evaluations) setEvaluations(data.evaluations);
+          })
+          .catch(console.error);
+      }, 300);
+
+      const channel = supabase
+        .channel("roster-evaluations")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "evaluations" },
+          refetch
+        )
+        .subscribe();
+
+      teardown = () => {
+        supabase.removeChannel(channel);
+      };
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      disposed = true;
+      teardown?.();
     };
   }, [account, personName]);
 
@@ -95,7 +115,7 @@ export default function RosterCalendarView({
     const days = new Set<number>();
     const details: Record<
       number,
-      { evaluations: EvaluationDay[]; score: string }
+      { evaluations: (EvaluationDay & { evaluationId: number; checkboxResults: Record<string, boolean> | null })[]; score: string }
     > = {};
 
     for (const ev of evaluations) {
@@ -117,6 +137,8 @@ export default function RosterCalendarView({
         time: ev.evaluation_date,
         type: ev.guideline ?? "Evaluation",
         score: ev.qa_score != null ? `${ev.qa_score}%` : "--",
+        evaluationId: ev.evaluation_id,
+        checkboxResults: ev.checkbox_results,
       });
       // Show the latest score for the day badge.
       if (ev.qa_score != null) {
@@ -138,12 +160,17 @@ export default function RosterCalendarView({
     );
     const realDays = Array.from({ length: daysInMonth }, (_, i) => {
       const day = i + 1;
+      const isFuture =
+        currentYear > todayYear ||
+        (currentYear === todayYear && currentMonth > todayMonth) ||
+        (currentYear === todayYear && currentMonth === todayMonth && day > todayDay);
       return {
         key: `day-${day}`,
         day,
         empty: false as const,
         today: day === todayDay && currentMonth === todayMonth && currentYear === todayYear,
         hasEvaluation: evaluationDays.has(day),
+        isFuture,
         detail: evaluationDetails[day],
       };
     });
@@ -246,11 +273,13 @@ export default function RosterCalendarView({
                 day,
                 today: cellToday,
                 hasEvaluation,
+                isFuture,
                 detail,
               } = cell as {
                 day: number;
                 today: boolean;
                 hasEvaluation: boolean;
+                isFuture: boolean;
                 detail:
                   | { evaluations: EvaluationDay[]; score: string }
                   | undefined;
@@ -259,23 +288,28 @@ export default function RosterCalendarView({
               return (
                 <button
                   key={cell.key}
-                  onClick={() => setPopupDay(day)}
-                  className={`group relative flex min-h-[90px] flex-col border-b border-r border-border-subtle/50 p-2.5 transition-all duration-150 ${
-                    cellToday
-                      ? `border-2 ${a.border} bg-card`
-                      : hasEvaluation
-                        ? "bg-card hover:shadow-md hover:z-10"
-                        : `bg-card ${a.hoverBg}`
+                  onClick={() => !isFuture && setPopupDay(day)}
+                  disabled={isFuture}
+                  className={`group relative flex min-h-[90px] flex-col border-b border-r border-border-subtle/50 p-2.5 transition-colors duration-150 ${
+                    isFuture
+                      ? "cursor-not-allowed bg-surface-base/30 opacity-40"
+                      : cellToday
+                        ? `border-2 ${a.border} bg-card`
+                        : hasEvaluation
+                          ? "bg-card hover:shadow-md hover:z-10"
+                          : `bg-card ${a.hoverBg}`
                   }`}
                 >
                   <div className="flex items-start justify-between">
                     <span
                       className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[12px] font-bold ${
-                        cellToday
-                          ? `${a.bgLight} ${a.text}`
-                          : hasEvaluation
-                            ? "text-text-primary"
-                            : "text-text-muted"
+                        isFuture
+                          ? "text-text-muted/40"
+                          : cellToday
+                            ? `${a.bgLight} ${a.text}`
+                            : hasEvaluation
+                              ? "text-text-primary"
+                              : "text-text-muted"
                       }`}
                     >
                       {day}
@@ -385,7 +419,7 @@ export default function RosterCalendarView({
                             <button
                               onClick={() =>
                                 router.push(
-                                  `/accounts/${account}/roster/${personName}/evaluation/eval-${account}-${popupDay}-${i}`
+                                  `/accounts/${account}/roster/${personName}/evaluation/${ev.evaluationId}?guideline=${encodeURIComponent(ev.type)}`
                                 )
                               }
                               className={`flex-shrink-0 rounded-lg border ${a.border} bg-card px-3 py-1.5 text-[11px] font-semibold ${a.text} transition ${a.hoverBg}`}
@@ -406,8 +440,7 @@ export default function RosterCalendarView({
               <div className="mt-4 pt-4 border-t border-border-subtle">
                 {canEvaluate ? (
                   <button
-                    onClick={() => router.push(`/accounts/${account}/roster/${personName}/evaluation/new?day=${popupDay}&month=${currentMonth}&year=${currentYear}`)}
-                    className={`inline-flex w-full items-center justify-center gap-2 rounded-lg ${a.bg} px-4 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90`}
+                    onClick={() => router.push(`/accounts/${account}/roster/${personName}/evaluation/new?day=${popupDay}&month=${currentMonth}&year=${currentYear}${lobId != null ? `&lobId=${lobId}` : ""}`)}                    className={`inline-flex w-full items-center justify-center gap-2 rounded-lg ${a.bg} px-4 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90`}
                   >
                     <Plus className="h-4 w-4" />
                     Evaluate

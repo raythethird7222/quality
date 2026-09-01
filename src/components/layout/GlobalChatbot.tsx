@@ -1,7 +1,10 @@
 "use client";
 
-// GlobalChatbot: floating QA-REY agent with a scripted scenario engine and chat UI.
-import { useEffect, useRef, useState } from "react";
+// GlobalChatbot: floating QA-Tool Agent with a real AI backend.
+// Replaces the previous scripted scenario engine with streaming API calls
+// to /api/agent, displaying real-time status and structured responses.
+
+import { useEffect, useRef, useState, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   X,
@@ -9,6 +12,7 @@ import {
   Sparkles,
   Bot,
   ArrowRight,
+  Loader2,
 } from "lucide-react";
 import { useAccentHex } from "@/features/settings/useAccent";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -19,93 +23,28 @@ import { DotLottieReact } from "@lottiefiles/dotlottie-react";
 const LOTTIE_SRC =
   "https://lottie.host/ce930c93-4dc8-4e7f-add1-71991673ba89/0pxGadRyQW.json";
 
+// Agent API endpoint.
+const AGENT_API = "/api/agent";
+
 /* -------------------------------------------------------------------------- */
-/*  Static scenario engine                                                    */
-/*  Replace this block with a real Agent backend later.                       */
+/*  Types                                                                      */
 /* -------------------------------------------------------------------------- */
 
-type AgentAction = {
+// A navigation action returned by the agent.
+type NavigationAction = {
+  type: "navigation";
   label: string;
+  route: string;
   description: string;
-  /** Returns the destination route for the current user context. */
-  route: (ctx: { accountKey: string }) => string;
 };
 
-// A single scripted conversation scenario matched by user keywords.
-type Scenario = {
-  id: string;
-  keywords: string[];
-  text: string;
-  action?: AgentAction;
-};
+// An item in the chat feed.
+type FeedItem =
+  | { kind: "message"; id: number; role: "user" | "agent"; text: string; action?: NavigationAction }
+  | { kind: "status"; id: number; text: string }
+  | { kind: "typing"; id: number };
 
-const SCENARIOS: Scenario[] = [
-  {
-    id: "score-low",
-    keywords: ["score low", "why is my", "low score", "why am i"],
-    text: "Your current QA score is 84%, which is 5% lower than your previous period. The biggest decline is in Compliance, where several recent evaluations show recurring issues.",
-    action: {
-      label: "Review My Evaluations",
-      description: "Review your recent evaluations",
-      route: ({ accountKey }) => `/accounts/${accountKey}/roster`,
-    },
-  },
-  {
-    id: "performance",
-    keywords: ["performance", "performing", "how am i", "analyze my performance"],
-    text: "Your current QA score is 87%. Your performance improved compared with the previous period, but Compliance remains your lowest-performing category.",
-    action: {
-      label: "View Performance",
-      description: "Open your performance analytics",
-      route: ({ accountKey }) => `/accounts/${accountKey}/analytics`,
-    },
-  },
-  {
-    id: "evaluations",
-    keywords: ["evaluation", "evaluations", "recent eval"],
-    text: "You have 8 recent evaluations. Your latest evaluation has a score of 91%.",
-    action: {
-      label: "View Evaluations",
-      description: "Open your evaluations list",
-      route: ({ accountKey }) => `/accounts/${accountKey}/roster`,
-    },
-  },
-  {
-    id: "improve",
-    keywords: ["improve", "coaching", "insight", "what should i"],
-    text: "Your most frequent issue is Compliance. Several recent evaluations contain similar findings.",
-    action: {
-      label: "View Coaching Insights",
-      description: "Explore coaching insights and recommendations",
-      route: () => `/coaching-insights`,
-    },
-  },
-  {
-    id: "rm-account",
-    keywords: ["rm account", "rm ", "account performing", "rm dashboard"],
-    text: "RM currently has an average QA score of 89%. Compliance is currently the lowest-performing category.",
-    action: {
-      label: "Open RM Dashboard",
-      description: "Open the RM account dashboard",
-      route: () => `/accounts/rm/dashboard`,
-    },
-  },
-  {
-    id: "team",
-    keywords: ["team", "analytics", "team performance"],
-    text: "The team currently has an average QA score of 88%. Three agents are currently below the target score.",
-    action: {
-      label: "Open Team Analytics",
-      description: "Open team analytics",
-      route: ({ accountKey }) => `/accounts/${accountKey}/analytics`,
-    },
-  },
-];
-
-const FALLBACK = {
-  text: "I'm currently focused on helping with QA performance, evaluations, coaching insights, and analytics.",
-};
-
+// Suggested prompts shown to the user.
 const SUGGESTED_PROMPTS = [
   "Analyze my performance",
   "Show my evaluations",
@@ -120,72 +59,48 @@ function accountKeyFromLabel(label?: string): string {
   return entry ? entry[0] : "rm";
 }
 
-// Matches a user input string against scenario keywords, returning the first hit.
-function matchScenario(input: string): Scenario | null {
-  const t = input.toLowerCase();
-  for (const s of SCENARIOS) {
-    if (s.keywords.some((k) => t.includes(k))) return s;
-  }
-  return null;
-}
-
 /* -------------------------------------------------------------------------- */
-/*  UI types                                                                  */
+/*  Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
-type FeedItem =
-  | { kind: "message"; id: number; role: "user" | "agent"; text: string; action?: object }
-  | { kind: "typing"; id: number };
-
-// Main chatbot component: renders the chathead and the conversation panel.
 export default function GlobalChatbot() {
-  // Current route path, used to hide the bot on the login screen.
   const pathname = usePathname();
-  // Router used to navigate to recommended routes.
   const router = useRouter();
-  // Authenticated user, providing the account context for routing.
   const { user } = useAuth();
-  // Active accent color applied to the chatbot UI.
   const accentHex = useAccentHex();
 
-  // Tracks whether the conversation panel is expanded.
   const [open, setOpen] = useState(false);
-  // Holds the ordered list of chat messages and typing indicators.
   const [feed, setFeed] = useState<FeedItem[]>([]);
-  // Holds the current text in the input box.
   const [input, setInput] = useState("");
-  // Tracks whether the agent is "thinking" to block duplicate sends.
   const [busy, setBusy] = useState(false);
-  // Panel height — user-adjustable via drag handle.
-  const [panelHeight, setPanelHeight] = useState(48 * 16);
+  const [panelHeightVh, setPanelHeightVh] = useState(75);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
-  // Ref to the scrollable message body for auto-scrolling.
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Monotonic counter for assigning unique ids to feed items.
   const idRef = useRef(1);
+  // AbortController for cancelling in-flight requests.
+  const abortRef = useRef<AbortController | null>(null);
 
   // Begin resizing the panel height from a pointer drag.
   function handleResizeStart(e: React.PointerEvent) {
     e.preventDefault();
-    dragRef.current = { startY: e.clientY, startH: panelHeight };
+    dragRef.current = { startY: e.clientY, startH: panelHeightVh };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
 
-  // Update panel height while dragging (pointer down + moving).
   function handleResizeMove(e: React.PointerEvent) {
     if (!dragRef.current) return;
     const delta = dragRef.current.startY - e.clientY;
-    const next = Math.min(48 * 16, Math.max(24 * 16, dragRef.current.startH + delta));
-    setPanelHeight(next);
+    const deltaVh = (delta / window.innerHeight) * 100;
+    const next = Math.min(90, Math.max(40, dragRef.current.startH + deltaVh));
+    setPanelHeightVh(next);
   }
 
-  // End the drag resize session.
   function handleResizeEnd(e: React.PointerEvent) {
     dragRef.current = null;
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
   }
 
-  // Auto-scrolls the message body to the bottom when feed or panel changes.
+  // Auto-scrolls the message body to the bottom when feed changes.
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
@@ -199,58 +114,182 @@ export default function GlobalChatbot() {
 
   const accountKey = accountKeyFromLabel(user?.account);
 
-  // Generates a monotonic id for feed items.
   function nextId() {
     return idRef.current++;
   }
 
-  // Runs the scripted agent: appends the user message, then a delayed reply.
-  function runAgent(rawText: string) {
-    const text = rawText.trim();
-    if (!text || busy) return;
+  // Sends the user message to the agent API and streams the response.
+  const sendToAgent = useCallback(
+    async (rawText: string) => {
+      const text = rawText.trim();
+      if (!text || busy) return;
 
-    setBusy(true);
-    setInput("");
-    setFeed((prev) => [
-      ...prev,
-      { kind: "message", id: nextId(), role: "user", text },
-      { kind: "typing", id: nextId() },
-    ]);
+      setBusy(true);
+      setInput("");
 
-    // Simulated "analyzing" delay — no real AI/backend.
-    window.setTimeout(() => {
-      const scenario = matchScenario(text);
-      const replyText = scenario ? scenario.text : FALLBACK.text;
-      const action = scenario?.action
-        ? {
-            ...scenario.action,
-            href: scenario.action.route({ accountKey }),
+      // Add user message and a typing indicator to the feed.
+      const userMsgId = nextId();
+      const typingId = nextId();
+      setFeed((prev) => [
+        ...prev,
+        { kind: "message", id: userMsgId, role: "user", text },
+        { kind: "typing", id: typingId },
+      ]);
+
+      // Create an abort controller for this request.
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        // Call the agent API with streaming (SSE).
+        const response = await fetch(AGENT_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: text,
+            // Include recent history (last 10 messages) for context.
+            // Map "agent" role to "assistant" for the API schema.
+            history: feed
+              .filter((i) => i.kind === "message")
+              .slice(-10)
+              .map((i) => {
+                const msg = i as Extract<FeedItem, { kind: "message" }>;
+                return {
+                  role: msg.role === "agent" ? "assistant" : "user",
+                  content: msg.text,
+                };
+              }),
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        // Read the SSE stream.
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("No response stream");
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // Process complete SSE events (separated by double newlines).
+          const events = buffer.split("\n\n");
+          buffer = events.pop() ?? "";
+
+          for (const eventStr of events) {
+            if (!eventStr.startsWith("data: ")) continue;
+            const data = eventStr.slice(6);
+            if (data === "[DONE]") continue;
+
+            try {
+              const event = JSON.parse(data) as {
+                type: string;
+                message?: string;
+                content?: string;
+                action?: NavigationAction;
+              };
+
+              if (event.type === "status") {
+                // Replace typing indicator with a status message.
+                setFeed((prev) => {
+                  const withoutTyping = prev.filter(
+                    (i) => i.kind !== "typing"
+                  );
+                  return [
+                    ...withoutTyping,
+                    {
+                      kind: "status",
+                      id: nextId(),
+                      text: event.message ?? "Processing...",
+                    },
+                  ];
+                });
+              } else if (event.type === "result") {
+                // Replace status/typing with the final agent message.
+                setFeed((prev) => {
+                  const withoutStatus = prev.filter(
+                    (i) => i.kind !== "typing" && i.kind !== "status"
+                  );
+                  return [
+                    ...withoutStatus,
+                    {
+                      kind: "message",
+                      id: nextId(),
+                      role: "agent",
+                      text:
+                        event.content ??
+                        "I wasn't able to generate a response.",
+                      action: event.action,
+                    },
+                  ];
+                });
+              } else if (event.type === "error") {
+                // Show error message in the feed.
+                setFeed((prev) => {
+                  const withoutStatus = prev.filter(
+                    (i) => i.kind !== "typing" && i.kind !== "status"
+                  );
+                  return [
+                    ...withoutStatus,
+                    {
+                      kind: "message",
+                      id: nextId(),
+                      role: "agent",
+                      text:
+                        event.message ??
+                        "Something went wrong. Please try again.",
+                    },
+                  ];
+                });
+              }
+            } catch {
+              // Skip malformed SSE events.
+            }
           }
-        : undefined;
+        }
+      } catch (err) {
+        // Don't show error for user-aborted requests.
+        if (err instanceof DOMException && err.name === "AbortError") return;
 
-      setFeed((prev) => {
-        const withoutTyping = prev.filter((i) => i.kind !== "typing");
-        return [
-          ...withoutTyping,
-          {
-            kind: "message",
-            id: nextId(),
-            role: "agent",
-            text: replyText,
-            action,
-          },
-        ];
-      });
-      setBusy(false);
-    }, 900);
+        // Show a user-friendly error message.
+        setFeed((prev) => {
+          const withoutStatus = prev.filter(
+            (i) => i.kind !== "typing" && i.kind !== "status"
+          );
+          return [
+            ...withoutStatus,
+            {
+              kind: "message",
+              id: nextId(),
+              role: "agent",
+              text: "I'm having trouble connecting right now. Please try again in a moment.",
+            },
+          ];
+        });
+      } finally {
+        setBusy(false);
+        abortRef.current = null;
+      }
+    },
+    [busy, feed]
+  );
+
+  function runAgent(rawText: string) {
+    void sendToAgent(rawText);
   }
 
-  // Sends the current input text to the agent.
   function send() {
     runAgent(input);
   }
 
-  // Submits the message when Enter is pressed.
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -258,10 +297,9 @@ export default function GlobalChatbot() {
     }
   }
 
-  // Closes the panel and navigates to the recommended destination route.
-  function go(href: string) {
+  function go(route: string) {
     setOpen(false);
-    router.push(href);
+    router.push(route);
   }
 
   const showWelcome = feed.length === 0;
@@ -269,10 +307,15 @@ export default function GlobalChatbot() {
   return (
     <div
       className="fixed inset-x-4 bottom-4 z-50 flex flex-col items-end gap-3 sm:inset-x-auto sm:right-4"
-      style={{ ["--agent-accent" as string]: accentHex } as React.CSSProperties}
+      style={
+        { ["--agent-accent" as string]: accentHex } as React.CSSProperties
+      }
     >
       {open && (
-        <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:w-[28rem]" style={{ height: panelHeight }}>
+        <div
+          className="flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:w-[28rem]"
+          style={{ height: `${panelHeightVh}vh` }}
+        >
           {/* Resize handle */}
           <div
             onPointerDown={handleResizeStart}
@@ -282,6 +325,7 @@ export default function GlobalChatbot() {
           >
             <span className="block h-[3px] w-10 rounded-full bg-border-default" />
           </div>
+
           {/* Header */}
           <div
             className="flex items-center justify-between px-4 py-3"
@@ -292,10 +336,10 @@ export default function GlobalChatbot() {
                 <Sparkles size={18} className="text-white" />
               </div>
               <div className="leading-tight">
-                <p className="text-sm font-semibold text-white">QA-REY Agent</p>
+                <p className="text-sm font-semibold text-white">QA-Tool Agent</p>
                 <p className="flex items-center gap-1 text-[11px] text-white/70">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                  Ready to assist
+                  {busy ? "Thinking..." : "Ready to assist"}
                 </p>
               </div>
             </div>
@@ -316,10 +360,7 @@ export default function GlobalChatbot() {
           </div>
 
           {/* Body */}
-          <div
-            ref={scrollRef}
-            className="flex-1 space-y-4 overflow-y-auto p-4"
-          >
+          <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
             {showWelcome ? (
               <div className="flex h-full flex-col items-center justify-center text-center">
                 <div
@@ -332,11 +373,10 @@ export default function GlobalChatbot() {
                   How can I help you today?
                 </h3>
                 <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-                  Ask me about your performance, evaluations, coaching insights,
-                  or QA-REY analytics.
+                  Ask me about your performance, evaluations, coaching
+                  insights, or QA-Tool analytics.
                 </p>
                 <div className="mt-5 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-                  {/* Suggested prompt chips that launch scripted scenarios. */}
                   {SUGGESTED_PROMPTS.map((p) => (
                     <button
                       key={p}
@@ -351,7 +391,6 @@ export default function GlobalChatbot() {
               </div>
             ) : (
               feed.map((item) => {
-                // Renders the animated "agent is typing" indicator.
                 if (item.kind === "typing") {
                   return (
                     <div key={item.id} className="flex items-start gap-2">
@@ -373,13 +412,24 @@ export default function GlobalChatbot() {
                   );
                 }
 
-                // Renders a user message, right-aligned and accent-filled.
+                if (item.kind === "status") {
+                  return (
+                    <div key={item.id} className="flex items-center gap-2">
+                      <Loader2
+                        size={14}
+                        className="animate-spin"
+                        style={{ color: accentHex }}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {item.text}
+                      </span>
+                    </div>
+                  );
+                }
+
                 if (item.role === "user") {
                   return (
-                    <div
-                      key={item.id}
-                      className="flex justify-end"
-                    >
+                    <div key={item.id} className="flex justify-end">
                       <div
                         className="max-w-[82%] rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white"
                         style={{ background: accentHex }}
@@ -390,41 +440,40 @@ export default function GlobalChatbot() {
                   );
                 }
 
-                // Agent message
-                const action = item.action as
-                  | (AgentAction & { href: string })
-                  | undefined;
+                // Agent message.
                 return (
                   <div key={item.id} className="flex items-start gap-2">
                     <div
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                      style={{ background: `${accentHex}1a`, color: accentHex }}
+                      style={{
+                        background: `${accentHex}1a`,
+                        color: accentHex,
+                      }}
                     >
                       <Bot size={15} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="mb-1 text-[11px] font-medium text-muted-foreground">
-                        QA-REY Agent
+                        QA-Tool Agent
                       </p>
                       <div className="rounded-2xl rounded-tl-sm bg-muted px-3 py-2 text-sm text-foreground">
                         {item.text}
                       </div>
 
-                       {action && (
-                        // Recommended action card with a CTA that navigates to a route.
+                      {item.action && (
                         <div className="mt-2 rounded-xl border border-border border-l-4 bg-background p-3 pl-3 [border-left-color:var(--agent-accent)]">
                           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                             Recommended
                           </p>
                           <p className="mt-0.5 text-sm text-foreground">
-                            {action.description}
+                            {item.action.description}
                           </p>
                           <button
-                            onClick={() => go(action.href)}
+                            onClick={() => go(item.action!.route)}
                             className="mt-2 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90"
                             style={{ background: accentHex }}
                           >
-                            {action.label}
+                            {item.action.label}
                             <ArrowRight size={15} />
                           </button>
                         </div>
@@ -439,7 +488,6 @@ export default function GlobalChatbot() {
           {/* Suggested prompts (compact, always available) */}
           {!showWelcome && (
             <div className="flex flex-wrap gap-1.5 border-t border-border px-3 py-2">
-              {/* Compact prompt chips kept visible during an active conversation. */}
               {SUGGESTED_PROMPTS.map((p) => (
                 <button
                   key={p}
@@ -454,14 +502,13 @@ export default function GlobalChatbot() {
           )}
 
           {/* Input */}
-          {/* Composer row: accent bot icon, text field, and send button. */}
           <div className="flex items-center gap-2 border-t border-border p-3">
             <Bot size={18} className="shrink-0" style={{ color: accentHex }} />
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Ask the QA-REY Agent…"
+              placeholder="Ask the QA-Tool Agent…"
               className="flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
             <button
@@ -478,11 +525,10 @@ export default function GlobalChatbot() {
       )}
 
       {/* Chathead */}
-      {/* Floating launcher that toggles the conversation panel open/closed. */}
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Close agent" : "Open agent"}
-        className="group flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-transparent transition hover:scale-105"
+        className="group flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-transparent transition hover:scale-105"
       >
         <DotLottieReact
           src={LOTTIE_SRC}
