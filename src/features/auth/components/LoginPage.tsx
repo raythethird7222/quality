@@ -1,437 +1,330 @@
 "use client";
 
-// Login page: branded auth screen with credentials and Google sign-in.
-import { useEffect, useState } from "react";
+// Modern QA login page inspired by the provided CTNP-style corporate direction.
+import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "@/features/auth/context/AuthContext";
 
-// Visual decoration element shapes rendered behind the login card.
-type Decoration =
-  | {
-      type: "circle";
-      className: string;
-      color: "brand-indigo" | "brand-gold";
-      opacity: string;
-    }
-  | {
-      type: "dots";
-      className: string;
-      color: "brand-gold";
-      opacity: string;
-      columns: number;
-      count: number;
-    }
-  | {
-      type: "line";
-      className: string;
-      color: "brand-gold";
-    };
-
-// Maps decoration color keys to their background utility classes.
-const COLOR_BG: Record<Decoration["color"], string> = {
-  "brand-indigo": "bg-brand-indigo",
-  "brand-gold": "bg-brand-gold",
-};
-
-// Maps a column count to its responsive grid utility class.
-const GRID_COLUMNS: Record<number, string> = {
-  1: "grid-cols-1",
-  2: "grid-cols-2",
-  3: "grid-cols-3",
-  4: "grid-cols-4",
-  5: "grid-cols-5",
-  6: "grid-cols-6",
-  7: "grid-cols-7",
-  8: "grid-cols-8",
-  9: "grid-cols-9",
-  10: "grid-cols-10",
-  11: "grid-cols-11",
-  12: "grid-cols-12",
-};
-
-// Static list of decorative shapes for the login background.
-const DECORATIONS: Decoration[] = [
-  {
-    type: "circle",
-    className: "-left-32 -top-32 w-[620px] h-[620px]",
-    color: "brand-indigo",
-    opacity: "opacity-10",
-  },
-  {
-    type: "circle",
-    className: "-right-32 -bottom-40 w-[500px] h-[500px] rotate-45",
-    color: "brand-gold",
-    opacity: "opacity-20",
-  },
-  {
-    type: "dots",
-    className: "top-20 right-16",
-    color: "brand-gold",
-    opacity: "opacity-60",
-    columns: 6,
-    count: 36,
-  },
-  {
-    type: "dots",
-    className: "bottom-20 left-16",
-    color: "brand-gold",
-    opacity: "opacity-50",
-    columns: 6,
-    count: 36,
-  },
-  {
-    type: "line",
-    className: "right-0 top-1/2 w-[400px] h-px rotate-[-35deg]",
-    color: "brand-gold",
-  },
-];
-
-// Renders the absolute-positioned brand decoration layer.
-function BackgroundDecorations() {
-  return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden">
-      {DECORATIONS.map((decoration, index) => {
-        // Render a large translucent circle decoration.
-        if (decoration.type === "circle") {
-          return (
-            <div
-              key={index}
-              className={`absolute rounded-full ${decoration.className} ${COLOR_BG[decoration.color]} ${decoration.opacity}`}
-            />
-          );
-        }
-
-        // Render a grid of small dot decorations.
-        if (decoration.type === "dots") {
-          return (
-            <div
-              key={index}
-              className={`absolute grid ${GRID_COLUMNS[decoration.columns] ?? GRID_COLUMNS[6]} gap-4 ${decoration.className} ${decoration.opacity}`}
-            >
-              {/* Render one dot element per configured count */}
-              {Array.from({ length: decoration.count }).map((_, dotIndex) => (
-                <span
-                  key={dotIndex}
-                  className={`w-1.5 h-1.5 rounded-full ${COLOR_BG[decoration.color]}`}
-                />
-              ))}
-            </div>
-          );
-        }
-
-        return (
-          <div
-            key={index}
-            className={`absolute ${decoration.className} ${COLOR_BG[decoration.color]}`}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-// Login page component: handles credential + Google auth and session restore.
+// Login page component keeps the existing authentication flow while replacing the visual presentation.
 export default function LoginPage() {
+  // Reuse the application's existing credential authentication implementation.
   const { login } = useAuth();
-  // Toggles visibility of the password field between masked and plaintext.
-  const [showPassword, setShowPassword] = useState(false);
-  // Holds the entered username/email value.
+
+  // Store the user's login identifier.
   const [username, setUsername] = useState("");
-  // Holds the entered password value.
+  // Store the user's password.
   const [password, setPassword] = useState("");
-  // Holds an inline auth error message to display to the user.
-  // Holds an inline auth error message to display to the user. Initialised from
-  // the URL (e.g. after a failed Google sign-in where the email isn't
-  // registered) without triggering a cascading render in an effect.
+  // Toggle password visibility.
+  const [showPassword, setShowPassword] = useState(false);
+  // Show authentication or callback errors inline.
   const [error, setError] = useState(() =>
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("error") ?? ""
       : ""
   );
-  // True while a credential login request is in flight (disables inputs).
+  // Disable credential controls while authentication is running.
   const [submitting, setSubmitting] = useState(false);
-  // True while the Google OAuth redirect is being initiated.
-  const [googleLoading, setGoogleLoading] = useState(false);
+  // Disable the Microsoft/Google-style OAuth control while redirecting.
+  const [oauthLoading, setOauthLoading] = useState(false);
 
-  // Browsers may restore this page from the back/forward cache after login,
-  // bypassing the middleware redirect. Re-check the session on restore: an
-  // authenticated user must never land back on the login page.
+  // Re-check the session when a browser restores the login page from its back/forward cache.
   useEffect(() => {
     function handlePageShow(event: PageTransitionEvent) {
+      // Only perform the session check for pages restored from the browser cache.
       if (!event.persisted) return;
+
+      // Ask the existing auth endpoint whether a session is already active.
       fetch("/api/auth/me")
-        .then((res) => (res.ok ? res.json() : null))
+        .then((response) => (response.ok ? response.json() : null))
         .then((data) => {
+          // Authenticated users should never remain on the login screen.
           if (data?.user) {
             window.location.replace("/dashboard");
-          } else {
-            setSubmitting(false);
-            setError("");
+            return;
           }
+
+          // Restore the form to an interactive state when no session exists.
+          setSubmitting(false);
+          setError("");
         })
         .catch(() => setSubmitting(false));
     }
+
+    // Register the browser cache restore listener.
     window.addEventListener("pageshow", handlePageShow);
+
+    // Remove the listener when the component unmounts.
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
-  // Clean the error param from the URL (read into state above) so a refresh
-  // doesn't re-show it. No state updates happen here.
+  // Remove callback error query parameters after their value has been copied into state.
   useEffect(() => {
+    // Only manipulate browser history when a callback error is present.
     if (
       typeof window !== "undefined" &&
       new URLSearchParams(window.location.search).get("error")
     ) {
+      // Build a clean URL without exposing the authentication error in the address bar.
       const cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.delete("error");
       window.history.replaceState({}, "", cleanUrl.toString());
     }
   }, []);
 
-  // Submit handler for the username/password login form.
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
+  // Submit credentials through the existing application authentication context.
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    // Prevent a normal browser form submission.
+    event.preventDefault();
+
+    // Ignore duplicate submissions while authentication is running.
     if (submitting) return;
+
+    // Enter the loading state and clear any previous error.
     setSubmitting(true);
     setError("");
+
+    // Keep the application's existing authentication behavior unchanged.
     const result = await login(username, password);
+
+    // Redirect authenticated users to the existing dashboard.
     if (result.success) {
-      setError("");
-      window.location.href = "/dashboard"; // eslint-disable-line @next/next/no-location-assign-relative-destination -- Full page reload for auth state
-    } else {
-      setSubmitting(false);
-      setError(result.error ?? "Login failed");
+      window.location.href = "/dashboard";
+      return;
     }
+
+    // Return the form to an interactive state when authentication fails.
+    setSubmitting(false);
+    setError(result.error ?? "Unable to sign in. Please check your credentials.");
   }
 
-  // Initiates the Google OAuth sign-in redirect flow.
-  async function handleGoogleLogin() {
+  // Start the existing Google OAuth flow without changing the application's auth provider configuration.
+  async function handleOAuthLogin() {
+    // Clear any previous error before starting the redirect.
     setError("");
-    setGoogleLoading(true);
+    setOauthLoading(true);
+
     try {
-      // Lazy-load the browser Supabase client only when Google sign-in starts.
+      // Load the browser Supabase client only when the OAuth action is used.
       const { createBrowserClient } = await import("@/lib/supabase/client");
       const supabase = createBrowserClient();
-      const { error } = await supabase.auth.signInWithOAuth({
+
+      // Start the provider redirect using the application's existing callback route.
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
         },
       });
-      if (error) {
-        setGoogleLoading(false);
-        setError(error.message);
+
+      // Surface provider errors without breaking the login page.
+      if (oauthError) {
+        setOauthLoading(false);
+        setError(oauthError.message);
       }
     } catch {
-      setGoogleLoading(false);
-      setError("Unable to start Google sign-in. Please try again.");
+      // Surface unexpected OAuth initialization errors safely.
+      setOauthLoading(false);
+      setError("Unable to start single sign-on. Please try again.");
     }
   }
 
   return (
-    <main className="min-h-screen bg-background flex items-center justify-center p-6 relative overflow-hidden">
-      {/* Background Decorations */}
-      <BackgroundDecorations />
+    <main className="min-h-screen bg-[#F8F8F6] text-[#17283B] lg:grid lg:grid-cols-[58%_42%]">
+      {/* Brand panel creates the dark, premium corporate visual from the reference design. */}
+      <section className="relative hidden min-h-screen overflow-hidden bg-[#132B43] text-white lg:flex lg:flex-col lg:justify-between">
+        {/* Large abstract circle adds the reference design's curved visual language. */}
+        <div className="absolute -left-48 -top-48 h-[620px] w-[620px] rounded-full border-[90px] border-[#2F6798]/30" />
+        {/* Gold arc provides the restrained premium accent. */}
+        <div className="absolute -bottom-56 -right-44 h-[600px] w-[600px] rounded-full border-[70px] border-[#C8A54B]/90" />
+        {/* Japanese-inspired wave pattern adds subtle visual texture without external assets. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 h-[48%] opacity-[0.10]"
+          style={{
+            backgroundImage:
+              "radial-gradient(ellipse at 50% 100%, transparent 0 45%, #FFFFFF 46% 47%, transparent 48%)",
+            backgroundSize: "54px 34px",
+          }}
+        />
+        {/* Soft overlay keeps decorative elements subordinate to the message. */}
+        <div className="absolute inset-0 bg-gradient-to-br from-[#132B43]/20 via-transparent to-[#0B1C2D]/55" />
 
-      {/* Login Container */}
-      <div className="relative z-10 w-full max-w-[900px] bg-card rounded-2xl shadow-[0_25px_70px_rgba(0,0,0,0.15)] overflow-hidden border border-border flex flex-col md:flex-row min-h-[560px]">
+        {/* Brand content stays above the decorative layers. */}
+        <div className="relative z-10 p-12 xl:p-16">
+          {/* Small corporate eyebrow mirrors the reference's restrained typography. */}
+          <p className="mb-16 text-[11px] font-medium uppercase tracking-[0.42em] text-white/65">
+            People &nbsp;|&nbsp; Process &nbsp;|&nbsp; A Better Tomorrow
+          </p>
 
-        {/* LEFT BRAND PANEL */}
-        <section className="relative md:w-[42%] bg-brand-indigo text-white overflow-hidden flex flex-col justify-center px-10 py-10">
-
-          {/* Decorative shapes */}
-          <div className="absolute -right-24 -top-24 w-72 h-72 rounded-full border-[60px] border-white/5" />
-
-          <div className="absolute bottom-[-100px] left-[-100px] w-80 h-80 rounded-full border-[70px] border-white/5" />
-
-          <div className="absolute inset-0 opacity-[0.06]">
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage:
-                  "linear-gradient(30deg, transparent 45%, currentColor 46%, transparent 47%)",
-                backgroundSize: "35px 35px",
-              }}
-            />
-          </div>
-
-          <div className="relative z-10">
-            {/* Logo */}
-            <div className="flex items-center gap-3 mb-8">
-              <div className="relative w-14 h-14">
-                <div className="absolute inset-0 border-4 border-white rounded-full" />
-
-                <div className="absolute left-6 top-1 w-2 h-12 bg-brand-gold rotate-[35deg]" />
-
-                <div className="absolute left-2 top-7 w-5 h-2 bg-white rotate-45 rounded-full" />
-              </div>
-
-              <div>
-                <h1 className="text-4xl font-bold tracking-tight">
-                  QA<span className="text-brand-gold">-</span>REY
-                </h1>
-              </div>
-            </div>
-
-            <div className="w-14 h-1 bg-brand-gold mb-4" />
-
-            <h2 className="text-xl font-semibold mb-2">
-              Quality Assurance System
-            </h2>
-
-            <p className="text-white/75 text-base leading-relaxed max-w-sm">
-              Ensuring quality.
+          {/* Main quality statement establishes the product's purpose immediately. */}
+          <div className="max-w-2xl">
+            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.35em] text-[#C8A54B]">
+              Quality drives
+            </p>
+            <h1 className="text-5xl font-semibold leading-[0.98] tracking-[-0.035em] xl:text-7xl">
+              Better
               <br />
-              Driving excellence.
+              Customer
+              <br />
+              Experiences
+            </h1>
+            <div className="my-8 h-px w-16 bg-[#C8A54B]" />
+            <p className="max-w-lg text-lg leading-8 text-white/72 xl:text-xl">
+              Empowering better customer experiences through smarter quality management.
             </p>
+          </div>
+        </div>
 
-            {/* Bottom Info */}
-            <div className="mt-12 flex items-center gap-3 text-white/70">
-              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
-                ✓
-              </div>
-
-              <span className="text-sm">
-                Reliable • Efficient • Quality Driven
-              </span>
+        {/* Brand footer highlights the platform's operational values. */}
+        <div className="relative z-10 px-12 pb-10 xl:px-16 xl:pb-12">
+          {/* Value row reinforces people, operational excellence, and improvement. */}
+          <div className="mb-12 grid max-w-3xl grid-cols-3 gap-8">
+            <div className="border-l border-white/20 pl-4">
+              <p className="mb-1 text-[10px] uppercase tracking-[0.22em] text-white/55">People</p>
+              <p className="text-sm font-medium">People First</p>
+            </div>
+            <div className="border-l border-white/20 pl-4">
+              <p className="mb-1 text-[10px] uppercase tracking-[0.22em] text-white/55">Process</p>
+              <p className="text-sm font-medium">Operational Excellence</p>
+            </div>
+            <div className="border-l border-[#C8A54B] pl-4">
+              <p className="mb-1 text-[10px] uppercase tracking-[0.22em] text-[#C8A54B]">Purpose</p>
+              <p className="text-sm font-medium">A Better Tomorrow</p>
             </div>
           </div>
 
-          {/* Gold diagonal */}
-          <div className="absolute bottom-0 right-[-35px] w-20 h-[180px] bg-brand-gold rotate-[38deg]" />
-        </section>
+          {/* Product statement anchors the brand panel at the bottom. */}
+          <div className="flex items-center justify-between border-t border-white/10 pt-5 text-[10px] uppercase tracking-[0.3em] text-white/45">
+            <span>QA Tool</span>
+            <span>Quality · Precision · Excellence</span>
+          </div>
+        </div>
+      </section>
 
-        {/* RIGHT LOGIN PANEL */}
-        <section className="md:w-[58%] px-8 sm:px-14 py-8 flex flex-col justify-center">
+      {/* Login panel remains bright, spacious, and focused on authentication. */}
+      <section className="relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-12 sm:px-10">
+        {/* Mobile-only decorative circle keeps the visual identity consistent on smaller screens. */}
+        <div className="absolute -right-40 -top-40 h-80 w-80 rounded-full border-[48px] border-[#C8A54B]/15 lg:hidden" />
+        {/* Mobile-only indigo arc balances the login composition. */}
+        <div className="absolute -bottom-32 -left-32 h-64 w-64 rounded-full border-[42px] border-[#2F6798]/10 lg:hidden" />
 
-          {/* Icon */}
-          <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 rounded-full bg-brand-indigo text-white border-4 border-brand-gold flex items-center justify-center shadow-lg">
-              <svg
-                width="30"
-                height="30"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-              >
-                <path d="M12 3l7 3v5c0 4.5-3 7.8-7 10-4-2.2-7-5.5-7-10V6l7-3z" />
-                <path d="M8.5 12l2.2 2.2 4.8-5" />
-              </svg>
+        {/* Login content is constrained for comfortable reading and form interaction. */}
+        <div className="relative z-10 w-full max-w-[430px]">
+          {/* Product mark gives the form a strong identity without relying on an external asset. */}
+          <div className="mb-14 flex items-center justify-center lg:justify-start">
+            <div className="relative mr-3 h-12 w-12">
+              {/* QA ring represents quality and continuity. */}
+              <div className="absolute inset-0 rounded-full border-[7px] border-[#173B5D]" />
+              {/* Gold slash creates the distinctive brand accent. */}
+              <div className="absolute left-[19px] top-[-2px] h-12 w-[6px] rotate-[34deg] bg-[#C8A54B]" />
+              {/* Small cut-out accent gives the mark a custom silhouette. */}
+              <div className="absolute bottom-1 left-0 h-2.5 w-5 rotate-45 rounded-full bg-[#173B5D]" />
             </div>
-          </div>
-
-          {/* Heading */}
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-foreground">
-              Welcome Back!
-            </h2>
-
-            <p className="text-muted-foreground mt-1.5 text-sm">
-              Please log in to your account
-            </p>
-
-            {error && (
-              <p className="text-destructive text-sm mt-2 font-medium">{error}</p>
-            )}
-          </div>
-
-          {/* Form */}
-          <form className="space-y-4" onSubmit={handleLogin}>
-
-            {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Email / Username
+              <p className="text-[30px] font-semibold leading-none tracking-[-0.04em] text-[#173B5D]">
+                QA<span className="text-[#C8A54B]"> </span>TOOL
+              </p>
+              <p className="mt-1 text-[8px] uppercase tracking-[0.42em] text-[#687585]">
+                Quality · People · Progress
+              </p>
+            </div>
+          </div>
+
+          {/* Login heading introduces the action clearly. */}
+          <div className="mb-8">
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[#C8A54B]">
+              Secure workspace
+            </p>
+            <h2 className="text-4xl font-semibold tracking-[-0.035em] text-[#17283B]">
+              Welcome back
+            </h2>
+            <p className="mt-3 text-base text-[#6A7583]">
+              Sign in to your QA workspace.
+            </p>
+          </div>
+
+          {/* Authentication errors are presented above the fields without changing the existing auth behavior. */}
+          {error && (
+            <div
+              role="alert"
+              className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-5 text-red-700"
+            >
+              {error}
+            </div>
+          )}
+
+          {/* Credential form uses the existing login handler. */}
+          <form className="space-y-5" onSubmit={handleLogin}>
+            {/* Employee/email field follows the clean reference input style. */}
+            <div>
+              <label htmlFor="qa-username" className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#536172]">
+                Employee ID or Email
               </label>
-
               <div className="relative">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                  >
-                    <circle cx="12" cy="8" r="4" />
-                    <path d="M4 21c.5-4 3-6 8-6s7.5 2 8 6" />
-                  </svg>
-                </div>
-
+                {/* User icon provides a compact visual affordance. */}
+                <svg className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8190A0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+                  <circle cx="12" cy="8" r="3.5" />
+                  <path d="M5 20c.6-3.4 2.9-5.5 7-5.5s6.4 2.1 7 5.5" />
+                </svg>
                 <input
+                  id="qa-username"
+                  name="username"
                   type="text"
-                  placeholder="Enter your email or username"
+                  autoComplete="username"
                   value={username}
                   disabled={submitting}
-                  // Update the username and clear any prior error on each keystroke.
-                  onChange={(e) => { setUsername(e.target.value); setError(""); }}
-                  className="w-full h-11 pl-11 pr-4 rounded-lg border border-border bg-card text-foreground text-sm outline-none transition-all placeholder:text-muted-foreground focus:border-brand-indigo focus:ring-3 focus:ring-brand-indigo/10 disabled:cursor-not-allowed disabled:opacity-70"
+                  placeholder="Enter your employee ID or email"
+                  onChange={(event) => {
+                    setUsername(event.target.value);
+                    setError("");
+                  }}
+                  className="h-14 w-full rounded-xl border border-[#D7DDE3] bg-white pl-12 pr-4 text-[15px] text-[#17283B] outline-none transition placeholder:text-[#9AA4AF] focus:border-[#2F6798] focus:ring-4 focus:ring-[#2F6798]/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
             </div>
 
-            {/* Password */}
+            {/* Password field includes a keyboard-accessible visibility control. */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
+              <label htmlFor="qa-password" className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#536172]">
                 Password
               </label>
-
               <div className="relative">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                  >
-                    <rect x="4" y="10" width="16" height="11" rx="2" />
-                    <path d="M8 10V7a4 4 0 018 0v3" />
-                  </svg>
-                </div>
-
+                {/* Lock icon identifies the sensitive credential field. */}
+                <svg className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8190A0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+                  <rect x="5" y="10" width="14" height="10" rx="2" />
+                  <path d="M8 10V7a4 4 0 018 0v3" />
+                </svg>
                 <input
+                  id="qa-password"
+                  name="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter your employee code"
+                  autoComplete="current-password"
                   value={password}
                   disabled={submitting}
-                  // Update the password and clear any prior error on each keystroke.
-                  onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                  className="w-full h-11 pl-11 pr-11 rounded-lg border border-border bg-card text-foreground text-sm outline-none transition-all placeholder:text-muted-foreground focus:border-brand-indigo focus:ring-3 focus:ring-brand-indigo/10 disabled:cursor-not-allowed disabled:opacity-70"
+                  placeholder="Enter your password"
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setError("");
+                  }}
+                  className="h-14 w-full rounded-xl border border-[#D7DDE3] bg-white pl-12 pr-12 text-[15px] text-[#17283B] outline-none transition placeholder:text-[#9AA4AF] focus:border-[#2F6798] focus:ring-4 focus:ring-[#2F6798]/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
-
+                {/* Password visibility button avoids changing the existing password state. */}
                 <button
                   type="button"
-                  // Toggle the password field between masked and plaintext.
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-brand-indigo"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  disabled={submitting}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[#8190A0] transition hover:text-[#2F6798] disabled:opacity-50"
                 >
                   {showPassword ? (
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                    >
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
                       <path d="M3 3l18 18" />
-                      <path d="M10.6 10.6a2 2 0 002.8 2.8" />
-                      <path d="M9.9 4.2A10.8 10.8 0 0112 4c5 0 8.5 4 9.5 8a11.8 11.8 0 01-3.1 5.1" />
-                      <path d="M6.2 6.2A12 12 0 002.5 12c1 4 4.5 8 9.5 8 1.4 0 2.7-.3 3.9-.8" />
+                      <path d="M10.6 10.6a3 3 0 004.2 4.2" />
+                      <path d="M9.9 4.7A10.7 10.7 0 0112 4.5c5 0 8.5 4.5 9.5 7.5a12.4 12.4 0 01-3.1 4.9" />
+                      <path d="M6.1 6.1C4.4 7.4 3.2 9.2 2.5 12c1 3 4.5 7.5 9.5 7.5 1.4 0 2.7-.3 3.8-.8" />
                     </svg>
                   ) : (
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                    >
-                      <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z" />
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+                      <path d="M2.5 12S6 4.5 12 4.5 21.5 12 21.5 12 18 19.5 12 19.5 2.5 12 2.5 12z" />
                       <circle cx="12" cy="12" r="3" />
                     </svg>
                   )}
@@ -439,90 +332,66 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Login Button */}
+            {/* Secondary controls provide familiar enterprise login affordances. */}
+            <div className="flex items-center justify-between gap-4 pt-1 text-sm">
+              <label className="flex cursor-pointer items-center gap-2 text-[#536172]">
+                <input type="checkbox" className="h-4 w-4 rounded border-[#C9D0D8] accent-[#2F6798]" />
+                <span>Remember me</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setError("Please contact your administrator to reset your password.")}
+                className="font-medium text-[#244F78] transition hover:text-[#C8A54B]"
+              >
+                Forgot password?
+              </button>
+            </div>
+
+            {/* Primary action uses the reference's full-width premium button. */}
             <button
               type="submit"
-              disabled={submitting}
-              className="w-full h-11 rounded-lg bg-brand-indigo text-white font-semibold tracking-wide shadow-md hover:bg-brand-indigo/90 hover:shadow-lg transition-all flex items-center justify-center gap-3 disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={submitting || !username.trim() || !password}
+              className="group flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-[#244F78] px-5 text-[15px] font-semibold text-white shadow-[0_10px_25px_rgba(36,79,120,0.18)] transition hover:bg-[#173B5D] focus:outline-none focus:ring-4 focus:ring-[#2F6798]/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? (
-                <>
-                  <svg
-                    className="animate-spin"
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
-                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                  </svg>
-                  LOGGING IN...
-                </>
-              ) : (
-                <>
-                  LOG IN
-
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M5 12h14" />
-                    <path d="M13 6l6 6-6 6" />
-                  </svg>
-                </>
-              )}
+              <span>{submitting ? "Signing in…" : "Sign In"}</span>
+              {!submitting && <span className="text-lg transition-transform group-hover:translate-x-1">→</span>}
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-5">
-            <span className="h-px flex-1 bg-border" />
-            <span className="text-xs text-muted-foreground">or</span>
-            <span className="h-px flex-1 bg-border" />
+          {/* Provider separator keeps the OAuth option visually secondary. */}
+          <div className="my-7 flex items-center gap-4 text-xs uppercase tracking-[0.18em] text-[#9AA4AF]">
+            <span className="h-px flex-1 bg-[#E0E4E8]" />
+            <span>or</span>
+            <span className="h-px flex-1 bg-[#E0E4E8]" />
           </div>
 
-          {/* Google Button */}
+          {/* Existing Google OAuth is presented as the enterprise SSO action. */}
           <button
             type="button"
-            onClick={handleGoogleLogin}
-            disabled={googleLoading || submitting}
-            className="w-full h-11 rounded-lg border border-border bg-card text-foreground text-sm font-semibold flex items-center justify-center gap-3 shadow-sm transition-all hover:bg-surface-overlay hover:border-border-accent disabled:cursor-not-allowed disabled:opacity-70"
-            aria-label="Continue with Google"
+            disabled={submitting || oauthLoading}
+            onClick={handleOAuthLogin}
+            className="flex h-14 w-full items-center justify-center gap-3 rounded-xl border border-[#D7DDE3] bg-white px-5 text-[15px] font-medium text-[#26384A] transition hover:border-[#B9C3CD] hover:bg-[#FBFCFD] focus:outline-none focus:ring-4 focus:ring-[#2F6798]/10 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-              <path
-                fill="#EA4335"
-                d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-              />
-              <path
-                fill="#4285F4"
-                d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-              />
-              <path
-                fill="#34A853"
-                d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-              />
-            </svg>
-            {googleLoading ? "Redirecting to Google..." : "Continue with Google"}
+            {/* Google mark remains recognizable while the control follows the new UI. */}
+            <span className="grid h-5 w-5 place-items-center rounded-sm font-bold text-[#4285F4]" aria-hidden="true">G</span>
+            <span>{oauthLoading ? "Connecting…" : "Sign in with Google"}</span>
           </button>
-        </section>
-      </div>
 
-      {/* Footer */}
-      <div className="absolute bottom-5 text-sm text-muted-foreground">
-        © 2026{" "}
-        <span className="font-semibold text-brand-indigo">QA-REY</span>.
-        All rights reserved.
-      </div>
+          {/* Security note reassures users that the page is an authenticated internal workspace. */}
+          <div className="mt-8 flex items-center justify-center gap-2 text-center text-xs text-[#7D8996]">
+            <svg className="h-4 w-4 text-[#2F6798]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+              <path d="M12 3l7 3v5c0 4.5-3 7.8-7 10-4-2.2-7-5.5-7-10V6l7-3z" />
+              <path d="M8.5 12l2.2 2.2 4.8-5" />
+            </svg>
+            <span>Your account is protected by secure authentication.</span>
+          </div>
+
+          {/* Footer identifies this as an internal business application. */}
+          <p className="mt-12 text-center text-[9px] uppercase tracking-[0.34em] text-[#A2ABB5]">
+            QA Tool &nbsp;|&nbsp; Internal Use Only
+          </p>
+        </div>
+      </section>
     </main>
   );
 }
