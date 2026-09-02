@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { ChevronDown, LogOut, Settings, User, Bell } from "lucide-react";
+import NotificationPanel from "./NotificationPanel";
 import { usePathname, useRouter } from "next/navigation";
 import { useAccentHex } from "@/features/settings/useAccent";
 import { Menu } from "lucide-react";
@@ -30,10 +31,14 @@ export default function Header({
   const [mounted, setMounted] = useState(false);
   // Tracks whether the profile dropdown menu is open.
   const [open, setOpen] = useState(false);
+  // Tracks whether the notification panel is open.
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   // Ref to the profile menu container for outside-click detection.
   const menuRef = useRef<HTMLDivElement>(null);
   // Ref to the trigger button for portal positioning.
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // Ref to the notification trigger button.
+  const notificationTriggerRef = useRef<HTMLButtonElement>(null);
   // Ref to the portal dropdown for outside-click detection.
   const portalMenuRef = useRef<HTMLDivElement>(null);
 
@@ -45,20 +50,21 @@ export default function Header({
 
   // Close dropdown on outside click
   useEffect(() => {
-    if (!open) return;
+    if (!open && !notificationsOpen) return;
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node;
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(target) &&
-        portalMenuRef.current &&
-        !portalMenuRef.current.contains(target)
-      ) {
+      if (open && menuRef.current && !menuRef.current.contains(target) && portalMenuRef.current && !portalMenuRef.current.contains(target)) {
         setOpen(false);
+      }
+      if (notificationsOpen && notificationTriggerRef.current && !notificationTriggerRef.current.contains(target)) {
+        setNotificationsOpen(false);
       }
     }
     function handleKeydown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        setNotificationsOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleKeydown);
@@ -66,7 +72,7 @@ export default function Header({
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeydown);
     };
-  }, [open]);
+  }, [open, notificationsOpen]);
 
   if (!mounted || pathname === "/login") return null;
 
@@ -124,8 +130,10 @@ export default function Header({
         <div className="ml-auto flex items-center gap-2.5 md:gap-3">
           <ThemeToggle />
           <button
+            ref={notificationTriggerRef}
             type="button"
             aria-label="Notifications"
+            onClick={() => setNotificationsOpen((prev) => !prev)}
             className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-border-default bg-surface-raised text-text-primary transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-accent"
           >
             <Bell className="h-4 w-4" aria-hidden="true" />
@@ -218,6 +226,11 @@ export default function Header({
               </div>
               , document.body)
             )}
+            <NotificationPanel
+              open={notificationsOpen}
+              onClose={() => setNotificationsOpen(false)}
+              triggerRef={notificationTriggerRef}
+            />
           </div>
         </div>
       </nav>

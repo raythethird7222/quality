@@ -174,9 +174,9 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] text-[#17283B] lg:grid lg:grid-cols-[58%_42%]">
+    <main className="flex h-screen w-full flex-col overflow-hidden bg-[#F8F8F6] text-[#17283B] lg:grid lg:grid-cols-[58%_42%]">
       {/* Brand panel creates the dark, premium corporate visual from the reference design. */}
-      <section className="relative hidden min-h-screen overflow-hidden bg-[#132B43] text-white lg:flex lg:flex-col lg:justify-between">
+      <section className="relative hidden h-full overflow-hidden bg-[#132B43] text-white lg:flex lg:flex-col lg:justify-between">
         {/* Hero team photo blended into the dark panel. */}
         <div className="absolute inset-y-0 right-0 flex items-center">
           <Image
@@ -232,7 +232,7 @@ export default function LoginPage() {
             </h1>
             <div className="my-8 h-px w-16 bg-[#C8A54B]" />
             <p className="max-w-lg text-lg leading-8 text-white/72 xl:text-xl">
-              An AI assistant that helps you review interactions, evaluate agents, and elevate quality at scale.
+              Review interactions, evaluate agent performance, and improve quality standards across your team.
             </p>
           </div>
         </div>
@@ -264,20 +264,17 @@ export default function LoginPage() {
       </section>
 
       {/* Login panel remains bright, spacious, and focused on authentication. */}
-      <section className="relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-12 sm:px-10">
+      <section className="flex h-full w-full overflow-y-auto px-6 py-10 sm:px-10 lg:overflow-hidden">
 
-        {/* Login content is constrained for comfortable reading and form interaction. */}
-        <div className="relative z-10 w-full max-w-[430px]">
+        {/* Login content fills the panel and keeps comfortable reading width. */}
+        <div className="relative z-10 flex h-full w-full flex-col justify-center">
           {/* CTNP logo gives the form its brand identity. */}
-          <div className="mb-14 flex justify-center">
+          <div className="mb-2 flex justify-center">
             <Image src="/logo.png" alt="QA Tool logo" width={492} height={188} priority className="h-auto w-[220px]" />
           </div>
 
           {/* Login heading introduces the action clearly. */}
           <div className="mb-8 text-center">
-            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[#C8A54B]">
-              Secure workspace
-            </p>
             <h2 className="text-4xl font-semibold tracking-[-0.035em] text-[#17283B]">
               Welcome back
             </h2>
@@ -430,15 +427,6 @@ export default function LoginPage() {
             </svg>
             <span>{oauthLoading ? "Connecting…" : "Sign in with Google"}</span>
           </button>
-
-          {/* Security note reassures users that the page is an authenticated internal workspace. */}
-          <div className="mt-8 flex items-center justify-center gap-2 text-center text-xs text-[#7D8996]">
-            <svg className="h-4 w-4 text-[#2F6798]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-              <path d="M12 3l7 3v5c0 4.5-3 7.8-7 10-4-2.2-7-5.5-7-10V6l7-3z" />
-              <path d="M8.5 12l2.2 2.2 4.8-5" />
-            </svg>
-            <span>Your account is protected by secure authentication.</span>
-          </div>
 
           {/* Footer identifies this as an internal business application. */}
           <p className="mt-12 text-center text-[9px] uppercase tracking-[0.34em] text-[#A2ABB5]">
