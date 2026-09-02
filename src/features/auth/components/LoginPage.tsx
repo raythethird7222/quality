@@ -2,7 +2,11 @@
 
 // Modern QA login page inspired by the provided CTNP-style corporate direction.
 import { FormEvent, useEffect, useState } from "react";
+import Image from "next/image";
 import { useAuth } from "@/features/auth/context/AuthContext";
+
+// Words cycled through by the typewriter effect in the headline.
+const TYPEWRITER_WORDS = ["Quality", "Precision", "Insights", "Excellence"];
 
 // Login page component keeps the existing authentication flow while replacing the visual presentation.
 export default function LoginPage() {
@@ -25,6 +29,48 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   // Disable the Microsoft/Google-style OAuth control while redirecting.
   const [oauthLoading, setOauthLoading] = useState(false);
+  // Persist the session when the user asks to be remembered.
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // Typewriter effect words for the highlighted brand term.
+  const [typewriterText, setTypewriterText] = useState("");
+  const [typewriterIndex, setTypewriterIndex] = useState(0);
+  const [typewriterDeleting, setTypewriterDeleting] = useState(false);
+
+  // Animates the highlighted word with a typewriter (type/delete/shift) effect.
+  useEffect(() => {
+    const current = TYPEWRITER_WORDS[typewriterIndex % TYPEWRITER_WORDS.length];
+    let timeout: ReturnType<typeof setTimeout>;
+
+    if (!typewriterDeleting) {
+      // Keep typing the current word until it is fully shown.
+      if (typewriterText !== current) {
+        timeout = setTimeout(
+          () => setTypewriterText(current.slice(0, typewriterText.length + 1)),
+          90
+        );
+      } else {
+        // Pause briefly, then switch to deleting.
+        timeout = setTimeout(() => setTypewriterDeleting(true), 1700);
+      }
+    } else {
+      // Delete the current word entirely, then shift to the next one.
+      if (typewriterText.length > 0) {
+        timeout = setTimeout(
+          () => setTypewriterText(current.slice(0, typewriterText.length - 1)),
+          55
+        );
+      } else {
+        timeout = setTimeout(() => {
+          setTypewriterDeleting(false);
+          setTypewriterIndex((index) => index + 1);
+        }, 300);
+        return () => clearTimeout(timeout);
+      }
+    }
+
+    return () => clearTimeout(timeout);
+  }, [typewriterText, typewriterDeleting, typewriterIndex]);
 
   // Re-check the session when a browser restores the login page from its back/forward cache.
   useEffect(() => {
@@ -83,7 +129,7 @@ export default function LoginPage() {
     setError("");
 
     // Keep the application's existing authentication behavior unchanged.
-    const result = await login(username, password);
+    const result = await login(username, password, rememberMe);
 
     // Redirect authenticated users to the existing dashboard.
     if (result.success) {
@@ -131,45 +177,62 @@ export default function LoginPage() {
     <main className="min-h-screen bg-[#F8F8F6] text-[#17283B] lg:grid lg:grid-cols-[58%_42%]">
       {/* Brand panel creates the dark, premium corporate visual from the reference design. */}
       <section className="relative hidden min-h-screen overflow-hidden bg-[#132B43] text-white lg:flex lg:flex-col lg:justify-between">
-        {/* Large abstract circle adds the reference design's curved visual language. */}
-        <div className="absolute -left-48 -top-48 h-[620px] w-[620px] rounded-full border-[90px] border-[#2F6798]/30" />
-        {/* Gold arc provides the restrained premium accent. */}
-        <div className="absolute -bottom-56 -right-44 h-[600px] w-[600px] rounded-full border-[70px] border-[#C8A54B]/90" />
-        {/* Japanese-inspired wave pattern adds subtle visual texture without external assets. */}
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 bottom-0 h-[48%] opacity-[0.10]"
-          style={{
-            backgroundImage:
-              "radial-gradient(ellipse at 50% 100%, transparent 0 45%, #FFFFFF 46% 47%, transparent 48%)",
-            backgroundSize: "54px 34px",
-          }}
-        />
-        {/* Soft overlay keeps decorative elements subordinate to the message. */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#132B43]/20 via-transparent to-[#0B1C2D]/55" />
+        {/* Herro team photo blended into the dark panel with luminosity for a ghosted effect. */}
+        <div className="absolute inset-y-0 right-0 flex items-center">
+          <Image
+            src="/Herro-Photo-scaled.png"
+            alt=""
+            width={1971}
+            height={2560}
+            priority
+            className="h-full w-auto object-contain opacity-[0.7]"
+            sizes="58vw"
+          />
+        </div>
+        {/* Gradient wash keeps the image blended and text legible. */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#132B43]/70 via-[#132B43]/35 to-[#132B43]/85" />
+
+        {/* Decorative design at the bottom-left corner of the panel. */}
+        <div className="absolute -bottom-40 -left-44 h-[520px] w-[520px] rounded-full border-[80px] border-[#2F6798]/40" />
+        <div className="absolute -bottom-28 -left-32 h-[380px] w-[380px] rounded-full border-[55px] border-[#C8A54B]/30" />
+
+        {/* Cebu Tele-Net Philippines logo at the top-left of the panel. */}
+        <div className="absolute left-12 top-12 z-10 xl:left-16 xl:top-14">
+          <Image
+            src="/cebu-tele-net-Philippines-300x138.png"
+            alt="Cebu Tele-Net Philippines"
+            width={300}
+            height={138}
+            priority
+            className="h-auto w-[150px] xl:w-[170px]"
+          />
+        </div>
 
         {/* Brand content stays above the decorative layers. */}
-        <div className="relative z-10 p-12 xl:p-16">
+        <div className="relative z-10 flex flex-1 flex-col justify-center p-12 xl:p-16">
           {/* Small corporate eyebrow mirrors the reference's restrained typography. */}
           <p className="mb-16 text-[11px] font-medium uppercase tracking-[0.42em] text-white/65">
-            People &nbsp;|&nbsp; Process &nbsp;|&nbsp; A Better Tomorrow
+            Insights &nbsp;|&nbsp; Intelligence &nbsp;|&nbsp; A Better Tomorrow
           </p>
 
           {/* Main quality statement establishes the product's purpose immediately. */}
           <div className="max-w-2xl">
             <p className="mb-4 text-sm font-semibold uppercase tracking-[0.35em] text-[#C8A54B]">
-              Quality drives
+              AI-powered quality
             </p>
             <h1 className="text-5xl font-semibold leading-[0.98] tracking-[-0.035em] xl:text-7xl">
-              Better
+              Smarter
               <br />
-              Customer
+              AI-driven
               <br />
-              Experiences
+              <span className="text-[#C8A54B]">
+                {typewriterText}
+                <span className="animate-pulse">|</span>
+              </span>
             </h1>
             <div className="my-8 h-px w-16 bg-[#C8A54B]" />
             <p className="max-w-lg text-lg leading-8 text-white/72 xl:text-xl">
-              Empowering better customer experiences through smarter quality management.
+              An AI assistant that helps you review interactions, evaluate agents, and elevate quality at scale.
             </p>
           </div>
         </div>
@@ -179,12 +242,12 @@ export default function LoginPage() {
           {/* Value row reinforces people, operational excellence, and improvement. */}
           <div className="mb-12 grid max-w-3xl grid-cols-3 gap-8">
             <div className="border-l border-white/20 pl-4">
-              <p className="mb-1 text-[10px] uppercase tracking-[0.22em] text-white/55">People</p>
-              <p className="text-sm font-medium">People First</p>
+              <p className="mb-1 text-[10px] uppercase tracking-[0.22em] text-white/55">Insights</p>
+              <p className="text-sm font-medium">Actionable Data</p>
             </div>
             <div className="border-l border-white/20 pl-4">
-              <p className="mb-1 text-[10px] uppercase tracking-[0.22em] text-white/55">Process</p>
-              <p className="text-sm font-medium">Operational Excellence</p>
+              <p className="mb-1 text-[10px] uppercase tracking-[0.22em] text-white/55">Intelligence</p>
+              <p className="text-sm font-medium">AI-Driven Quality</p>
             </div>
             <div className="border-l border-[#C8A54B] pl-4">
               <p className="mb-1 text-[10px] uppercase tracking-[0.22em] text-[#C8A54B]">Purpose</p>
@@ -195,42 +258,23 @@ export default function LoginPage() {
           {/* Product statement anchors the brand panel at the bottom. */}
           <div className="flex items-center justify-between border-t border-white/10 pt-5 text-[10px] uppercase tracking-[0.3em] text-white/45">
             <span>QA Tool</span>
-            <span>Quality · Precision · Excellence</span>
+            <span>CTNP | Philippines</span>
           </div>
         </div>
       </section>
 
       {/* Login panel remains bright, spacious, and focused on authentication. */}
       <section className="relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-12 sm:px-10">
-        {/* Mobile-only decorative circle keeps the visual identity consistent on smaller screens. */}
-        <div className="absolute -right-40 -top-40 h-80 w-80 rounded-full border-[48px] border-[#C8A54B]/15 lg:hidden" />
-        {/* Mobile-only indigo arc balances the login composition. */}
-        <div className="absolute -bottom-32 -left-32 h-64 w-64 rounded-full border-[42px] border-[#2F6798]/10 lg:hidden" />
 
         {/* Login content is constrained for comfortable reading and form interaction. */}
         <div className="relative z-10 w-full max-w-[430px]">
-          {/* Product mark gives the form a strong identity without relying on an external asset. */}
-          <div className="mb-14 flex items-center justify-center lg:justify-start">
-            <div className="relative mr-3 h-12 w-12">
-              {/* QA ring represents quality and continuity. */}
-              <div className="absolute inset-0 rounded-full border-[7px] border-[#173B5D]" />
-              {/* Gold slash creates the distinctive brand accent. */}
-              <div className="absolute left-[19px] top-[-2px] h-12 w-[6px] rotate-[34deg] bg-[#C8A54B]" />
-              {/* Small cut-out accent gives the mark a custom silhouette. */}
-              <div className="absolute bottom-1 left-0 h-2.5 w-5 rotate-45 rounded-full bg-[#173B5D]" />
-            </div>
-            <div>
-              <p className="text-[30px] font-semibold leading-none tracking-[-0.04em] text-[#173B5D]">
-                QA<span className="text-[#C8A54B]"> </span>TOOL
-              </p>
-              <p className="mt-1 text-[8px] uppercase tracking-[0.42em] text-[#687585]">
-                Quality · People · Progress
-              </p>
-            </div>
+          {/* CTNP logo gives the form its brand identity. */}
+          <div className="mb-14 flex justify-center">
+            <Image src="/logo.png" alt="QA Tool logo" width={492} height={188} priority className="h-auto w-[220px]" />
           </div>
 
           {/* Login heading introduces the action clearly. */}
-          <div className="mb-8">
+          <div className="mb-8 text-center">
             <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[#C8A54B]">
               Secure workspace
             </p>
@@ -257,7 +301,7 @@ export default function LoginPage() {
             {/* Employee/email field follows the clean reference input style. */}
             <div>
               <label htmlFor="qa-username" className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#536172]">
-                Employee ID or Email
+                Email
               </label>
               <div className="relative">
                 {/* User icon provides a compact visual affordance. */}
@@ -272,7 +316,7 @@ export default function LoginPage() {
                   autoComplete="username"
                   value={username}
                   disabled={submitting}
-                  placeholder="Enter your employee ID or email"
+                  placeholder="Enter your email"
                   onChange={(event) => {
                     setUsername(event.target.value);
                     setError("");
@@ -335,7 +379,12 @@ export default function LoginPage() {
             {/* Secondary controls provide familiar enterprise login affordances. */}
             <div className="flex items-center justify-between gap-4 pt-1 text-sm">
               <label className="flex cursor-pointer items-center gap-2 text-[#536172]">
-                <input type="checkbox" className="h-4 w-4 rounded border-[#C9D0D8] accent-[#2F6798]" />
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(event) => setRememberMe(event.target.checked)}
+                  className="h-4 w-4 rounded border-[#C9D0D8] accent-[#2F6798]"
+                />
                 <span>Remember me</span>
               </label>
               <button
@@ -372,8 +421,13 @@ export default function LoginPage() {
             onClick={handleOAuthLogin}
             className="flex h-14 w-full items-center justify-center gap-3 rounded-xl border border-[#D7DDE3] bg-white px-5 text-[15px] font-medium text-[#26384A] transition hover:border-[#B9C3CD] hover:bg-[#FBFCFD] focus:outline-none focus:ring-4 focus:ring-[#2F6798]/10 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {/* Google mark remains recognizable while the control follows the new UI. */}
-            <span className="grid h-5 w-5 place-items-center rounded-sm font-bold text-[#4285F4]" aria-hidden="true">G</span>
+            {/* Official Google "G" logo (four-color mark) for the SSO control. */}
+            <svg className="h-5 w-5" viewBox="0 0 48 48" aria-hidden="true">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+            </svg>
             <span>{oauthLoading ? "Connecting…" : "Sign in with Google"}</span>
           </button>
 

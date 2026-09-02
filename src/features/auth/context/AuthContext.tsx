@@ -18,7 +18,8 @@ type AuthContextType = {
   loading: boolean;
   login: (
     email: string,
-    password: string
+    password: string,
+    rememberMe?: boolean
   ) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   requestLogout: () => void;
@@ -98,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Authenticates a user via the credentials login API.
   const login = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, rememberMe?: boolean) => {
       if (!email.trim() || !password.trim()) {
         return {
           success: false,
@@ -112,6 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({
           email: email.trim(),
           password: password.trim(),
+          rememberMe: rememberMe ?? false,
         }),
       });
 

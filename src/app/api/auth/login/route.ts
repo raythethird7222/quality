@@ -60,12 +60,15 @@ export async function POST(request: NextRequest) {
     // Build the success response and attach the auth cookie.
     const response = NextResponse.json({ success: true, user });
 
+    // Persistent cookie when "Remember me" is checked, otherwise a session cookie.
     response.cookies.set("qa-rey-auth", JSON.stringify(user), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 24, // 24 hours
+      ...(parsed.data.rememberMe
+        ? { maxAge: 60 * 60 * 24 * 30 } // 30 days when remembered
+        : {}), // session cookie (expires when the browser closes)
     });
 
     return response;
