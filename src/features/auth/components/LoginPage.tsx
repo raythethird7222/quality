@@ -180,7 +180,7 @@ export default function LoginPage() {
         {/* Hero team photo blended into the dark panel. */}
         <div className="absolute inset-y-0 right-0 flex items-center">
           <Image
-            src="/hero.png"
+            src="https://zhdmsmwrskxowvytedgh.supabase.co/storage/v1/object/public/Images/Herro-Photo-scaled.png"
             alt=""
             width={1971}
             height={2560}
@@ -199,7 +199,7 @@ export default function LoginPage() {
         {/* Cebu Tele-Net Philippines logo at the top-left of the panel. */}
         <div className="absolute left-12 top-12 z-10 xl:left-16 xl:top-14">
           <Image
-            src="/ctnp_phi.png"
+            src="https://zhdmsmwrskxowvytedgh.supabase.co/storage/v1/object/public/Images/cebu-tele-net-Philippines-300x138.png"
             alt="Cebu Tele-Net Philippines"
             width={300}
             height={138}
