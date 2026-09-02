@@ -229,11 +229,16 @@ export default function Sidebar({
           {/* LOGO — LEFT */}
 
           {!collapsed && (
-            <img
-              src={useDarkLogo ? "/logo_dark_mode.png" : "/logo.png"}
-              alt="QA-REY Logo"
-              className="h-24 w-24 object-contain"
-            />
+            <div className="relative">
+              <img
+                src={useDarkLogo ? "/logo_dark_mode.png" : "/logo.png"}
+                alt="QA-REY Logo"
+                className="h-24 w-24 object-contain"
+              />
+              <span className="absolute inset-x-0 left-auto right-0 top-4 z-10 w-fit rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow">
+                Beta
+              </span>
+            </div>
           )}
 
           {/* BURGER — RIGHT */}

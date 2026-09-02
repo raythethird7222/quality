@@ -4,8 +4,8 @@ import * as z from "zod";
 // This module is server-only and must never expose the OpenRouter API key to clients.
 
 const MODEL_CHAIN = [
-  "nvidia/nemotron-3-ultra-550b-a55b:free",
   "minimax/minimax-m3:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
   "poolside/laguna-s-2.1:free",
 ] as const;
 
@@ -231,7 +231,7 @@ async function callModel(
 export async function runAgentCompletion(params: {
   systemPrompt: string;
   messages: OpenRouterMessage[];
-  tools: { name: string; description: string; parameters: Record<string, unknown> }[];
+  tools: OpenRouterTool[];
   apiKey?: string;
 }): Promise<AgentCompletion> {
   const apiKey = params.apiKey ?? process.env.OPENROUTER_API_KEY;
@@ -246,14 +246,7 @@ export async function runAgentCompletion(params: {
     ...params.messages,
   ];
 
-  const openRouterTools: OpenRouterTool[] = params.tools.map((tool) => ({
-    type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-    },
-  }));
+  const openRouterTools = params.tools;
 
   validateTools(openRouterTools);
 

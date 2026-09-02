@@ -26,6 +26,12 @@ export function getSystemKnowledge(): string {
     "- Never make up or hallucinate data — only report what tools return",
     "- Navigation suggestions use predefined routes only (no arbitrary URLs)",
     "- Keep responses concise and actionable",
+    "",
+    "FORMATTING:",
+    "- Format your answers using Markdown. Tables should be rendered as Markdown tables (| col | col | and a separator row of dashes). Lists should use -, * or numbered items.",
+    "- Use bold/headings sparingly to highlight key figures.",
+    "- If a results table has more than ~6 columns, prefer the most useful columns to avoid overflow.",
+    "- ALWAYS include a '### Suggested Next Steps' section (heading level 3) at the end of your answer with follow-up prompt suggestions, each prefixed by a dash.",
   ].join("\n");
 }
 
@@ -86,6 +92,7 @@ export function getToolsKnowledge(): string {
     "- get_evaluation_summary: Get aggregated score/performance summary for an agent or account",
     "- get_accounts: List all accounts the user can access",
     "- get_lobs: List lines of business for an account",
+    "- get_qa_staff: List QA analysts/coaches and team leads assigned to an account",
     "- get_agent_performance: Get detailed performance metrics for an agent",
     "- get_qa_metrics: Get overall QA metrics for an account (totals, averages, trends)",
     "",
@@ -166,7 +173,15 @@ export function getModuleKnowledge(): string {
 
 // Selects which knowledge modules to load based on the user's message intent.
 // This keeps the system prompt minimal by only including relevant context.
-export function buildSystemPrompt(user: AuthUser, message: string): string {
+//
+// `effectiveAccounts` is the tool-enforced accessible account list (expanded
+// to all accounts for manager roles). It overrides the raw AuthUser.accounts
+// so the LLM knows the true set of accounts it may query.
+export function buildSystemPrompt(
+  user: AuthUser,
+  message: string,
+  effectiveAccounts?: { account: string; role: string }[]
+): string {
   const modules: string[] = [];
 
   // Always-loaded core modules.
@@ -174,7 +189,16 @@ export function buildSystemPrompt(user: AuthUser, message: string): string {
   modules.push(getRoleKnowledge(user.role));
   modules.push(getToolsKnowledge());
   modules.push(getPolicyKnowledge());
-  modules.push(getUserContextKnowledge(user));
+  modules.push(
+    getUserContextKnowledge({
+      ...user,
+      accounts:
+        effectiveAccounts?.map((a) => ({
+          account: a.account as AuthUser["account"],
+          role: a.role as AuthUser["role"],
+        })) ?? user.accounts,
+    })
+  );
 
   // Conditionally-loaded modules based on message intent.
   const lower = message.toLowerCase();

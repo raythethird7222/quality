@@ -6,6 +6,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   X,
   Send,
@@ -40,7 +42,14 @@ type NavigationAction = {
 
 // An item in the chat feed.
 type FeedItem =
-  | { kind: "message"; id: number; role: "user" | "agent"; text: string; action?: NavigationAction }
+  | {
+      kind: "message";
+      id: number;
+      role: "user" | "agent";
+      text: string;
+      action?: NavigationAction;
+      suggestions?: string[];
+    }
   | { kind: "status"; id: number; text: string }
   | { kind: "typing"; id: number };
 
@@ -195,6 +204,7 @@ export default function GlobalChatbot() {
                 message?: string;
                 content?: string;
                 action?: NavigationAction;
+                suggestions?: string[];
               };
 
               if (event.type === "status") {
@@ -228,6 +238,7 @@ export default function GlobalChatbot() {
                         event.content ??
                         "I wasn't able to generate a response.",
                       action: event.action,
+                      suggestions: event.suggestions,
                     },
                   ];
                 });
@@ -457,7 +468,7 @@ export default function GlobalChatbot() {
                         QA-Tool Agent
                       </p>
                       <div className="rounded-2xl rounded-tl-sm bg-muted px-3 py-2 text-sm text-foreground">
-                        {item.text}
+                        <MarkdownContent text={item.text} />
                       </div>
 
                       {item.action && (
@@ -476,6 +487,26 @@ export default function GlobalChatbot() {
                             {item.action.label}
                             <ArrowRight size={15} />
                           </button>
+                        </div>
+                      )}
+
+                      {item.suggestions && item.suggestions.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Suggested next steps
+                          </p>
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {item.suggestions.map((s) => (
+                              <button
+                                key={s}
+                                onClick={() => runAgent(s)}
+                                disabled={busy}
+                                className="rounded-full border border-border bg-background px-3 py-1.5 text-left text-xs text-foreground transition hover:border-[var(--agent-accent)] hover:bg-muted disabled:opacity-50"
+                              >
+                                {s.replace(/\*\*/g, "")}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -541,3 +572,80 @@ export default function GlobalChatbot() {
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Markdown renderer                                                         */
+/* -------------------------------------------------------------------------- */
+
+// Renders agent output as formatted Markdown (tables, headings, lists, bold).
+// Uses remark-gfm so GitHub-flavored tables render properly. Links and code
+// are sanitized to plain text to keep the chat safe.
+function MarkdownContent({ text }: { text: string }) {
+  return (
+    <div className="agent-markdown max-w-full overflow-x-auto break-words leading-relaxed">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          table: (props) => (
+            <div className="my-2 w-full overflow-x-auto">
+              <table
+                className="w-full border-collapse text-xs"
+                {...props}
+              />
+            </div>
+          ),
+          th: (props) => (
+            <th
+              className="border border-border bg-surface-raised px-2 py-1 text-left font-semibold"
+              {...props}
+            />
+          ),
+          td: (props) => (
+            <td className="border border-border px-2 py-1" {...props} />
+          ),
+          h1: (props) => (
+            <h1 className="mb-1 mt-2 text-base font-bold" {...props} />
+          ),
+          h2: (props) => (
+            <h2 className="mb-1 mt-2 text-sm font-bold" {...props} />
+          ),
+          h3: (props) => (
+            <h3 className="mb-1 mt-1.5 text-sm font-semibold" {...props} />
+          ),
+          p: (props) => <p className="my-1" {...props} />,
+          ul: (props) => (
+            <ul className="my-1 list-disc pl-4" {...props} />
+          ),
+          ol: (props) => (
+            <ol className="my-1 list-decimal pl-4" {...props} />
+          ),
+          li: (props) => <li className="my-0.5" {...props} />,
+          strong: (props) => <strong className="font-semibold" {...props} />,
+          a: (props) => <span {...props} />,
+          code: (props) => {
+            const { className, children, ...rest } = props as React.ComponentPropsWithoutRef<"code">;
+            const isInline = !className;
+            if (isInline) {
+              return (
+                <code
+                  className="rounded bg-black/10 px-1 py-0.5 text-[0.85em]"
+                  {...rest}
+                >
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <div className="my-2 overflow-x-auto rounded-lg bg-black/5 p-2 text-xs">
+                {children}
+              </div>
+            );
+          },
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+

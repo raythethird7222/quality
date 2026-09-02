@@ -11,7 +11,11 @@
 import { z } from "zod";
 import { createServerClient } from "@/lib/supabase/server";
 import { getAccountIdByCode } from "@/lib/db/quality";
-import { getAccountAgents } from "@/lib/db/employees";
+import {
+  getAccountAgents,
+  getAccountQAs,
+  getAccountTeamLeads,
+} from "@/lib/db/employees";
 import { getScopedAgentIds, isManagerRole } from "@/lib/db/helpers";
 import type { AgentTool, AgentContext, ToolResult } from "./types";
 
@@ -426,6 +430,48 @@ const getLobsTool: AgentTool = {
 };
 
 /* -------------------------------------------------------------------------- */
+/*  Tool: get_qa_staff                                                        */
+/* -------------------------------------------------------------------------- */
+
+const getQaStaffTool: AgentTool = {
+  name: "get_qa_staff",
+  description:
+    "List the QA analysts/coaches and team leads assigned to a specific " +
+    "account. Returns the people who review or coach evaluations for that " +
+    "account. Use when the user asks who the QA is, who reviews an account, " +
+    "or which QA analyst/coach covers a team.",
+  parameters: z.object({
+    account: z
+      .string()
+      .optional()
+      .describe("Account code (e.g., 'RM', 'JS'). Defaults to user's primary account."),
+  }),
+  execute: async (params, ctx) => {
+    const accountCode = resolveAccountCode(params.account as string, ctx);
+    if (!accountCode) {
+      return {
+        tool: "get_qa_staff",
+        success: false,
+        error: "You do not have access to this account.",
+      };
+    }
+
+    const qas = await getAccountQAs(accountCode);
+    const teamLeads = await getAccountTeamLeads(accountCode);
+
+    return {
+      tool: "get_qa_staff",
+      success: true,
+      data: {
+        account: accountCode.toUpperCase(),
+        qas,
+        teamLeads,
+      },
+    };
+  },
+};
+
+/* -------------------------------------------------------------------------- */
 /*  Tool: get_agent_performance                                               */
 /* -------------------------------------------------------------------------- */
 
@@ -652,6 +698,7 @@ export const TOOL_REGISTRY: AgentTool[] = [
   getEvaluationSummaryTool,
   getAccountsTool,
   getLobsTool,
+  getQaStaffTool,
   getAgentPerformanceTool,
   getQaMetricsTool,
 ];

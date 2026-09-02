@@ -80,6 +80,9 @@ export type NavigationAction = {
   description: string;
 };
 
+// A follow-up prompt suggestion the agent can offer to the user.
+export type Suggestion = string;
+
 /* -------------------------------------------------------------------------- */
 /*  API request / response                                                    */
 /* -------------------------------------------------------------------------- */
@@ -127,6 +130,7 @@ export type AgentResultEvent = {
   type: "result";
   content: string;
   action?: NavigationAction;
+  suggestions?: Suggestion[];
 };
 
 // Error event.

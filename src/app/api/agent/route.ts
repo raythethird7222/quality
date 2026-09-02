@@ -102,14 +102,13 @@ async function* runAgentLoop(
   ];
 
   // Convert our tool registry to OpenRouter format for the API.
-  // Cast through unknown because the internal tool format differs from OpenRouter's.
   const openRouterTools = toolsToOpenRouterFormat(
     TOOL_REGISTRY.map((t) => ({
       name: t.name,
       description: t.description,
-      parameters: t.parameters as unknown as { shape: Record<string, unknown> },
+      parameters: t.parameters,
     }))
-  ) as unknown as { name: string; description: string; parameters: Record<string, unknown> }[];
+  );
 
   // Track tool results across rounds. Use a mutable message array.
   // The local type is compatible with OpenRouterMessage after initialization.
@@ -244,14 +243,96 @@ async function* runAgentLoop(
       "Could you try rephrasing your question?";
   }
 
+  // Extract follow-up prompt suggestions from the markdown "Suggested Next
+  // Steps" section so the client can render them as tappable buttons, and
+  // strip that section from the visible message to avoid duplication.
+  const suggestions = extractSuggestions(finalContent);
+  const cleanContent = stripSuggestionsSection(finalContent);
+
   yield { type: "status", message: "Preparing your answer..." };
 
   // Emit the final result event.
   yield {
     type: "result",
-    content: finalContent,
+    content: cleanContent,
     ...(navigationAction ? { action: navigationAction } : {}),
+    ...(suggestions.length > 0 ? { suggestions } : {}),
   };
+}
+
+// Removes the "Suggested Next Steps" markdown section (heading + list items)
+// from a response so the suggestions are only shown as interactive buttons.
+function stripSuggestionsSection(markdown: string): string {
+  const lines = markdown.split("\n");
+  let inSection = false;
+  const kept: string[] = [];
+
+  for (const raw of lines) {
+    const line = raw.trim();
+
+    if (!inSection) {
+      if (/^#{1,3}\s*Suggested Next Steps\b/i.test(line)) {
+        inSection = true;
+        continue;
+      }
+      kept.push(raw);
+      continue;
+    }
+
+    // Section ends at the next heading or horizontal rule.
+    if (/^#{1,3}\s/.test(line) || /^-{3,}$/.test(line)) {
+      kept.push(raw);
+      inSection = false;
+      continue;
+    }
+
+    // Skip bullet/numbered suggestion items (and blank lines within section).
+    if (
+      /^[-*]\s+/.test(line) ||
+      /^\d+\.\s+/.test(line) ||
+      line === ""
+    ) {
+      continue;
+    }
+
+    // Keep any other (non-suggestion) content within the section.
+    kept.push(raw);
+  }
+
+  return kept.join("\n").trim();
+}
+
+// Scans markdown output for a "Suggested Next Steps" heading and returns the
+// bullet/numbered items beneath it as suggestion prompts. Handles both
+// "### Suggested Next Steps" and "## Suggested Next Steps" heading forms.
+function extractSuggestions(markdown: string): string[] {
+  const suggestions: string[] = [];
+  const lines = markdown.split("\n");
+  let inSection = false;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+
+    if (!inSection) {
+      if (/^#{1,3}\s*Suggested Next Steps\b/i.test(line)) {
+        inSection = true;
+      }
+      continue;
+    }
+
+    // Stop at the next heading or horizontal rule.
+    if (/^#{1,3}\s/.test(line) || /^-{3,}$/.test(line)) {
+      break;
+    }
+
+    // Capture bullet (-), asterisk (*), or numbered (1.) items.
+    const match = line.match(/^[-*]\s+(.+)$/) || line.match(/^\d+\.\s+(.+)$/);
+    if (match && match[1].trim()) {
+      suggestions.push(match[1].trim());
+    }
+  }
+
+  return suggestions.slice(0, 4);
 }
 
 // Maps tool names to user-friendly status messages. Only shows relevant
@@ -263,6 +344,7 @@ function getStatusMessage(toolName: string): string {
     get_evaluation_summary: "Analyzing performance summary...",
     get_accounts: "Loading account data...",
     get_lobs: "Loading line-of-business data...",
+    get_qa_staff: "Looking up QA staff...",
     get_agent_performance: "Analyzing agent performance...",
     get_qa_metrics: "Computing QA metrics...",
   };
@@ -326,7 +408,7 @@ export async function POST(request: Request) {
   const { message, history, accountScope } = parsed.data;
 
   // Step 3: Build the agent context from the authenticated user.
-  const ctx = buildAgentContext(user);
+  const ctx = await buildAgentContext(user);
 
   // If an account scope was specified, validate the user can access it.
   if (accountScope) {
@@ -346,7 +428,9 @@ export async function POST(request: Request) {
   }
 
   // Step 4: Build the system prompt with relevant knowledge modules.
-  const systemPrompt = buildSystemPrompt(user, message);
+  // Pass the effective (expanded) accessible accounts so managers know they
+  // can query every account.
+  const systemPrompt = buildSystemPrompt(user, message, ctx.accounts);
 
   // Step 5: Run the agent loop and stream results via SSE.
   return createSSEStream(() => runAgentLoop(message, history, ctx, systemPrompt));
