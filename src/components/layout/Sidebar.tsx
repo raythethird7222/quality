@@ -419,6 +419,18 @@ export default function Sidebar({
             USER FOOTER
         ================================================== */}
 
+        {!collapsed && (
+          <div className="shrink-0">
+            <div className="">
+              <img
+                src="https://zhdmsmwrskxowvytedgh.supabase.co/storage/v1/object/public/Images/design%20(1).png"
+                alt=""
+                className="w-full rounded-lg object-contain"
+              />
+            </div>
+          </div>
+        )}
+
         <div
           className={cn(
             "shrink-0 border-t border-white/20 p-3",

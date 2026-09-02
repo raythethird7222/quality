@@ -117,10 +117,6 @@ export default function GlobalChatbot() {
     });
   }, [feed, open]);
 
-  // Hide the chatbot entirely on the login route.
-  const isLogin = pathname === "/login";
-  if (isLogin) return null;
-
   const accountKey = accountKeyFromLabel(user?.account);
 
   function nextId() {
@@ -314,6 +310,10 @@ export default function GlobalChatbot() {
   }
 
   const showWelcome = feed.length === 0;
+
+  // Hide the chatbot entirely on the login route.
+  const isLogin = pathname === "/login";
+  if (isLogin) return null;
 
   return (
     <div

@@ -811,6 +811,7 @@ export async function getAccountAssignmentRows(
 // Aggregated agent count and QA member list for an account.
 export type AccountTeamOverview = {
   agents: number;
+  inactiveAgents: number;
   qaCount: number;
   members: TeamMember[];
 };
@@ -870,8 +871,13 @@ export async function getAccountTeamOverview(
     return { name, initial, agents: memberAgentCount.get(m.id) ?? 0, employeeId: m.id };
   });
 
+  const inactiveAgents = agents.filter(
+    (e) => (e.status_name ?? "").toUpperCase() === "INACTIVE"
+  ).length;
+
   return {
     agents: agents.length,
+    inactiveAgents,
     qaCount: qaMembers.length,
     members,
   };
@@ -882,6 +888,7 @@ export type AccountSummary = {
   account: AccountLabel;
   accountKey: AccountKey;
   agents: number;
+  inactiveAgents: number;
   qaCount: number;
 };
 
@@ -890,6 +897,7 @@ export type DashboardOverview = {
   isManager: boolean;
   accounts: AccountSummary[];
   totalAgents: number;
+  totalInactiveAgents: number;
   totalQAs: number;
   charts: DashboardChartAnalytics;
 };
@@ -936,12 +944,14 @@ export const getDashboardOverview = unstable_cache(
           account: code.toUpperCase() as AccountLabel,
           accountKey: code.toLowerCase() as AccountKey,
           agents: agentCount,
+          inactiveAgents: overview.inactiveAgents,
           qaCount: overview.qaCount,
         };
       })
     );
 
     const totalAgents = accounts.reduce((sum, a) => sum + a.agents, 0);
+    const totalInactiveAgents = accounts.reduce((sum, a) => sum + a.inactiveAgents, 0);
     const totalQAs = accounts.reduce((sum, a) => sum + a.qaCount, 0);
 
     // Fetch real chart analytics across all visible accounts. Non-manager
@@ -949,7 +959,7 @@ export const getDashboardOverview = unstable_cache(
     // see all data.
     const charts = await getDashboardChartAnalytics(accountCodes, user);
 
-    return { isManager, accounts, totalAgents, totalQAs, charts };
+    return { isManager, accounts, totalAgents, totalInactiveAgents, totalQAs, charts };
   },
   ["dashboard", "overview"],
   { revalidate: 120, tags: ["dashboard"] }

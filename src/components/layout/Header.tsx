@@ -2,9 +2,10 @@
 
 // Header: top navigation bar with theme toggle and the user profile menu.
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import { ChevronDown, LogOut, Settings, User } from "lucide-react";
+import { ChevronDown, LogOut, Settings, User, Bell } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAccentHex } from "@/features/settings/useAccent";
 import { Menu } from "lucide-react";
@@ -31,6 +32,10 @@ export default function Header({
   const [open, setOpen] = useState(false);
   // Ref to the profile menu container for outside-click detection.
   const menuRef = useRef<HTMLDivElement>(null);
+  // Ref to the trigger button for portal positioning.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // Ref to the portal dropdown for outside-click detection.
+  const portalMenuRef = useRef<HTMLDivElement>(null);
 
   // Hydration-safe mount detection
   // Marks the component as mounted so theme/client-only UI can render safely.
@@ -42,7 +47,13 @@ export default function Header({
   useEffect(() => {
     if (!open) return;
     function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(target) &&
+        portalMenuRef.current &&
+        !portalMenuRef.current.contains(target)
+      ) {
         setOpen(false);
       }
     }
@@ -92,14 +103,15 @@ export default function Header({
   const pageTitle = getPageTitle(pathname);
 
   return (
-    <header className="border-b border-border bg-surface-base/80 backdrop-blur">
-      <nav className="navbar mx-auto flex max-w-[1440px] items-center justify-between px-6 py-3.5 md:px-10">
+    <header className="relative border-b border-border bg-surface-base/80 shadow-sm backdrop-blur">
+      <div className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--app-accent)] to-transparent opacity-80" />
+      <nav className="navbar mx-auto flex items-center justify-between px-6 py-3.5 md:px-10">
         {/* Left: Mobile menu toggle + active page title */}
         <div className="flex items-center gap-3">
           <button
             onClick={onMenuClick}
             aria-label="Open navigation"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border-default bg-surface-raised text-text-primary transition-colors hover:bg-surface-overlay md:hidden"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border-default bg-surface-raised text-text-primary transition-colors hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-surface-overlay md:hidden"
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -111,13 +123,24 @@ export default function Header({
         {/* Right: User controls */}
         <div className="ml-auto flex items-center gap-2.5 md:gap-3">
           <ThemeToggle />
+          <button
+            type="button"
+            aria-label="Notifications"
+            className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-border-default bg-surface-raised text-text-primary transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-accent"
+          >
+            <Bell className="h-4 w-4" aria-hidden="true" />
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-crimson text-[9px] font-semibold leading-none text-white">
+              3
+            </span>
+          </button>
           <div ref={menuRef} className="relative">
             <button
+              ref={triggerRef}
               onClick={() => setOpen((prev) => !prev)}
               aria-haspopup="menu"
               aria-expanded={open}
               aria-label={`Profile menu for ${user.employee_name ?? ""}`}
-              className={`flex items-center gap-2 rounded-full border bg-surface-raised px-1.5 py-1.5 text-text-primary transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-accent sm:px-2 ${open ? "border-border-accent bg-surface-overlay" : "border-border-default"}`}
+              className={`flex items-center gap-2 rounded-full border bg-surface-raised px-1.5 py-1.5 text-text-primary transition-colors hover:border-[var(--app-accent)] hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-accent sm:px-2 ${open ? "border-border-accent bg-surface-overlay" : "border-border-default"}`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- SVG data URI avatar or stored profile photo */}
               <img
@@ -137,12 +160,18 @@ export default function Header({
               />
             </button>
 
-            {open && (
-              // Dropdown menu with profile, settings, and logout actions.
-              <div
-                role="menu"
-                className="absolute right-0 top-[calc(100%+8px)] z-50 w-52 overflow-hidden rounded-lg border border-border-default bg-card py-1.5 shadow-lg"
-              >
+            {open && triggerRef.current && (
+              createPortal(
+                <div
+                  ref={portalMenuRef}
+                  role="menu"
+                  className="fixed w-52 overflow-hidden rounded-lg border border-border-default bg-card py-1.5 shadow-lg"
+                  style={{
+                    top: `${triggerRef.current.getBoundingClientRect().bottom + 8}px`,
+                    right: `${window.innerWidth - triggerRef.current.getBoundingClientRect().right}px`,
+                    zIndex: 9999,
+                  }}
+                >
                 <button
                   role="menuitem"
                   onClick={() => {
@@ -187,6 +216,7 @@ export default function Header({
                   Logout
                 </button>
               </div>
+              , document.body)
             )}
           </div>
         </div>

@@ -754,6 +754,8 @@ export type DashboardChartAnalytics = {
   trendData: { month: string; score: number }[];
   barData: { defect: string; count: number }[];
   avgScore: number | null;
+  topAgents: { name: string; score: string }[];
+  bottomAgents: { name: string; score: string }[];
 };
 
 const TREND_MONTHS = [
@@ -768,7 +770,7 @@ export const getDashboardChartAnalytics = unstable_cache(
     user?: AuthUser
   ): Promise<DashboardChartAnalytics> => {
   if (accountCodes.length === 0) {
-    return { trendData: [], barData: [], avgScore: null };
+    return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
   }
 
   const supabase = createServerClient();
@@ -780,7 +782,7 @@ export const getDashboardChartAnalytics = unstable_cache(
     .in("account_code", accountCodes);
 
   if (!accounts || accounts.length === 0) {
-    return { trendData: [], barData: [], avgScore: null };
+    return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
   }
 
   const accountIds = accounts.map((a) => a.account_id);
@@ -809,13 +811,13 @@ export const getDashboardChartAnalytics = unstable_cache(
   // Fetch all evaluations for the relevant accounts.
   let query = supabase
     .from("evaluations")
-    .select("evaluation_id, account_id, lob_id, qa_score, evaluation_date")
+    .select("evaluation_id, account_id, lob_id, agent_employee_id, qa_score, evaluation_date")
     .in("account_id", accountIds)
     .order("evaluation_date", { ascending: true });
 
   if (scopedAgentIds) {
     if (scopedAgentIds.length === 0) {
-      return { trendData: [], barData: [], avgScore: null };
+      return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
     }
     query = query.in("agent_employee_id", scopedAgentIds);
   }
@@ -823,13 +825,14 @@ export const getDashboardChartAnalytics = unstable_cache(
   const { data, error } = await query;
 
   if (error || !data || data.length === 0) {
-    return { trendData: [], barData: [], avgScore: null };
+    return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
   }
 
   const evaluations = data as {
     evaluation_id: number;
     account_id: number;
     lob_id: number | null;
+    agent_employee_id: number | null;
     qa_score: number | null;
     evaluation_date: string | null;
   }[];
@@ -891,7 +894,40 @@ export const getDashboardChartAnalytics = unstable_cache(
     .sort((a, b) => b[1] - a[1])
     .map(([defect, count]) => ({ defect, count }));
 
-  return { trendData, barData, avgScore };
+  const agentScoreMap = new Map<number, { sum: number; count: number }>();
+  for (const e of scored) {
+    if (e.agent_employee_id == null) continue;
+    const cur = agentScoreMap.get(e.agent_employee_id) ?? { sum: 0, count: 0 };
+    cur.sum += e.qa_score;
+    cur.count += 1;
+    agentScoreMap.set(e.agent_employee_id, cur);
+  }
+
+  const agentRows = [...agentScoreMap.entries()]
+    .map(([id, v]) => ({
+      id,
+      avg: v.count ? Number((v.sum / v.count).toFixed(2)) : 0,
+    }))
+    .sort((a, b) => b.avg - a.avg);
+
+  const topAgentIds = agentRows.slice(0, 3).map((r) => r.id);
+  const bottomAgentIds = agentRows.slice(-3).map((r) => r.id);
+  const allRankedIds = [...new Set([...topAgentIds, ...bottomAgentIds])];
+  const employeeName = await getEmployeeNameMap(new Set(allRankedIds));
+
+  const formatAgent = (id: number) => {
+    const entry = agentScoreMap.get(id);
+    const avg = entry && entry.count ? (entry.sum / entry.count).toFixed(1) : "0.0";
+    return {
+      name: employeeName.get(id) ?? "Unknown",
+      score: `${avg}%`,
+    };
+  };
+
+  const topAgents = topAgentIds.map(formatAgent);
+  const bottomAgents = bottomAgentIds.map(formatAgent);
+
+  return { trendData, barData, avgScore, topAgents, bottomAgents };
   },
   ["dashboard", "chart-analytics"],
   { revalidate: 120, tags: ["dashboard", "evaluations"] }
