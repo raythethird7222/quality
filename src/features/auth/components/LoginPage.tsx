@@ -177,10 +177,10 @@ export default function LoginPage() {
     <main className="min-h-screen bg-[#F8F8F6] text-[#17283B] lg:grid lg:grid-cols-[58%_42%]">
       {/* Brand panel creates the dark, premium corporate visual from the reference design. */}
       <section className="relative hidden min-h-screen overflow-hidden bg-[#132B43] text-white lg:flex lg:flex-col lg:justify-between">
-        {/* Herro team photo blended into the dark panel with luminosity for a ghosted effect. */}
+        {/* Hero team photo blended into the dark panel. */}
         <div className="absolute inset-y-0 right-0 flex items-center">
           <Image
-            src="/Herro-Photo-scaled.png"
+            src="/hero.png"
             alt=""
             width={1971}
             height={2560}
@@ -199,7 +199,7 @@ export default function LoginPage() {
         {/* Cebu Tele-Net Philippines logo at the top-left of the panel. */}
         <div className="absolute left-12 top-12 z-10 xl:left-16 xl:top-14">
           <Image
-            src="/cebu-tele-net-Philippines-300x138.png"
+            src="/ctnp_phi.png"
             alt="Cebu Tele-Net Philippines"
             width={300}
             height={138}
