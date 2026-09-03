@@ -241,8 +241,6 @@ export async function getEmployeesByAccount(accountCode: string) {
 
   if (!accountId) return [];
 
-  // Fetch the account's assignments first to derive the exact set of employee
-  // IDs, then query only those employees (avoids a full-table scan).
   const { data: assignments } = await supabase
     .from("employee_assignments")
     .select(
@@ -289,12 +287,10 @@ export async function getEmployeesByAccount(accountCode: string) {
     .filter((e) => e.employee_assignments.length > 0);
 }
 
-// Alias for getEmployeesByAccount (kept for naming consistency).
 export async function getEmployeesWithAssignments(accountCode: string) {
   return getEmployeesByAccount(accountCode);
 }
 
-// Returns the account id, code, and name for a given account code.
 export async function getAccountDetails(accountCode: string) {
   const supabase = await createServerClient();
 
@@ -312,7 +308,6 @@ export async function getAccountDetails(accountCode: string) {
   return data as { account_id: number; account_code: string; account_name: string };
 }
 
-// Paginated, searchable employee query scoped to a single account.
 export async function getEmployeesPaginated({
   accountCode,
   page = 1,
@@ -344,7 +339,6 @@ export async function getEmployeesPaginated({
     )
     .eq("account_id", accountId);
 
-  // Unique employee ids assigned to this account (drives the employee query).
   const employeeIds = [...new Set((allAssignments ?? []).map((a) => a.employee_id))];
 
   if (employeeIds.length === 0) {
@@ -402,19 +396,16 @@ export async function getEmployeesPaginated({
   };
 }
 
-// Returns all accounts ordered by code (cached 5 min via loadAccounts).
 export async function getAccounts() {
   const accounts = await loadAccounts();
   return accounts.sort((a, b) => a.account_code.localeCompare(b.account_code));
 }
 
-// Returns all roles ordered by name (cached 5 min via loadRoles).
 export async function getRoles() {
   const roles = await loadRoles();
   return roles.sort((a, b) => a.role_name.localeCompare(b.role_name));
 }
 
-// Returns the LOBs belonging to a specific account, ordered by name.
 export async function getLobsByAccount(accountId: number) {
   const supabase = createAdminClient();
 
@@ -432,7 +423,6 @@ export async function getLobsByAccount(accountId: number) {
   return (data ?? []) as { lob_id: number; lob_name: string; account_id: number }[];
 }
 
-// Flattened employee shape with role, account, LOB, and status names.
 type EnrichedEmployee = {
   id: number;
   employee_code: string | null;
@@ -445,7 +435,6 @@ type EnrichedEmployee = {
   status_name: string | null;
 };
 
-// Normalizes a role name into a coarse category used for team filtering.
 function classifyRole(roleName: string): "agent" | "qa" | "team_lead" | "other" {
   const r = roleName.trim().toLowerCase();
   if (r === "agent") return "agent";
@@ -455,8 +444,6 @@ function classifyRole(roleName: string): "agent" | "qa" | "team_lead" | "other" 
   return "other";
 }
 
-// Core query that returns employees for an account enriched with role, LOB,
-// and status detail, used by the higher-level team aggregations below.
 async function getEnrichedEmployeesByAccount(
   accountCode: string
 ): Promise<EnrichedEmployee[]> {
@@ -484,7 +471,6 @@ async function getEnrichedEmployeesByAccount(
   }
   if (!assignments || assignments.length === 0) return [];
 
-  // Unique employee ids from the assignments, used to load employee rows.
   const employeeIds = [...new Set((assignments as AssignmentRow[]).map((a) => a.employee_id))];
 
   const { data: employees, error: empError } = await supabase
@@ -503,7 +489,6 @@ async function getEnrichedEmployeesByAccount(
     .from("statuses")
     .select("status_id, status_name");
 
-  // Maps a status id to its display name for enriching each employee.
   const statusMap = new Map<number, string>(
     (statuses ?? []).map((s) => [s.status_id, s.status_name])
   );
@@ -529,9 +514,6 @@ async function getEnrichedEmployeesByAccount(
   });
 }
 
-// Returns the (deduplicated) agents for an account as performance rows.
-// Uses agent_assignments table to get only assigned agents.
-// Managers see all agents; everyone else sees only agents they coach or evaluate.
 export async function getAccountAgents(
   accountCode: string,
   user?: AuthUser
@@ -556,10 +538,8 @@ export async function getAccountAgents(
 
   if (error || !assignments || assignments.length === 0) return [];
 
-  // Deduplicate agent employee ids.
   const agentIds = [...new Set(assignments.map((a) => a.agent_employee_id))];
 
-  // Fetch agent names.
   const { data: agents } = await supabase
     .from("employees")
     .select("id, employee_name")
@@ -572,7 +552,6 @@ export async function getAccountAgents(
   }));
 }
 
-// Returns the sorted list of QA employee names (coaches + evaluators) for an account.
 export async function getAccountQAs(accountCode: string): Promise<string[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
@@ -602,7 +581,6 @@ export async function getAccountQAs(accountCode: string): Promise<string[]> {
     .sort();
 }
 
-// Returns the sorted list of team lead names for an account.
 export async function getAccountTeamLeads(accountCode: string): Promise<string[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
@@ -628,7 +606,6 @@ export async function getAccountTeamLeads(accountCode: string): Promise<string[]
     .sort();
 }
 
-// Resolves the most relevant QA name: a matching employee or the first QA.
 export async function getAccountQaName(
   accountCode: string,
   employeeName?: string
@@ -643,7 +620,6 @@ export async function getAccountQaName(
   return qas[0] ?? employeeName ?? "QA";
 }
 
-// Returns the sorted LOB names for an account.
 export async function getAccountLobNames(
   accountCode: string
 ): Promise<string[]> {
@@ -657,7 +633,6 @@ export async function getAccountLobNames(
   return lobs.map((l) => l.lob_name).sort();
 }
 
-// Flat row shape for the account assignment roster table.
 export type AgentAssignmentRow = {
   name: string;
   lob: string;
@@ -665,8 +640,6 @@ export type AgentAssignmentRow = {
   evaluator: string;
   teamLead: string;
   status: string;
-  // Identifiers used by the editable assignment table (kept optional so the
-  // display-only consumers, e.g. the dashboard, are unaffected).
   assignmentId?: number;
   agentId?: number;
   lobId?: number;
@@ -675,8 +648,6 @@ export type AgentAssignmentRow = {
   teamLeadId?: number | null;
 };
 
-// Builds the assignment roster rows for an account using the agent_assignments table.
-// Managers see all assignments; everyone else sees only agents they coach or evaluate.
 export async function getAccountAssignmentRows(
   accountCode: string,
   user?: AuthUser
@@ -703,7 +674,6 @@ export async function getAccountAssignmentRows(
 
   if (error || !assignments || assignments.length === 0) return [];
 
-  // Collect all unique employee ids (agents + supervisors) to resolve names in one query.
   const allEmployeeIds = new Set<number>();
   for (const a of assignments) {
     allEmployeeIds.add(a.agent_employee_id);
@@ -721,7 +691,6 @@ export async function getAccountAssignmentRows(
     (employees ?? []).map((e) => [e.id, e.employee_name ?? "Unknown"])
   );
 
-  // Fetch LOB names for this account.
   const { data: lobs } = await supabase
     .from("lobs")
     .select("lob_id, lob_name")
@@ -747,7 +716,6 @@ export async function getAccountAssignmentRows(
   }));
 }
 
-// Aggregated agent count and QA member list for an account.
 export type AccountTeamOverview = {
   agents: number;
   activeAgents: number;
@@ -756,26 +724,18 @@ export type AccountTeamOverview = {
   members: TeamMember[];
 };
 
-// Returns agent/QA counts and the QA member list for an account.
-// Non-managers see only agents they coach, evaluate, or lead.
 export async function getAccountTeamOverview(
   accountCode: string,
   user?: AuthUser
 ): Promise<AccountTeamOverview> {
   const enriched = await getEnrichedEmployeesByAccount(accountCode);
-  const statuses = await getStatuses();
-  const inactiveStatusId =
-    statuses.find((status: { status_id: number; status_name: string }) => status.status_name.trim().toUpperCase() === "INACTIVE")
-      ?.status_id ?? null;
+  const accountId = await getAccountIdByCode(accountCode);
 
   const allAgents = enriched.filter(
     (e) => classifyRole(e.role_name) === "agent"
   );
 
   let agents = allAgents;
-
-  const accountId = await getAccountIdByCode(accountCode);
-
   if (accountId && user && !isManagerRole(user.role)) {
     const scoped = await getScopedAgentIds(accountId, user);
     if (scoped.agentIds !== null) {
@@ -823,18 +783,15 @@ export async function getAccountTeamOverview(
     };
   });
 
-  const inactiveAgents = allAgents.filter((agent) => {
-    if (inactiveStatusId == null) {
-      return (agent.status_name ?? "").toUpperCase() === "INACTIVE";
-    }
-
-    const row = enriched.find((entry) => entry.id === agent.id);
-    return row?.status_id != null && row.status_id === inactiveStatusId;
-  }).length;
-  const activeAgents = allAgents.length - inactiveAgents;
+  const inactiveAgents = agents.filter(
+    (agent) => (agent.status_name ?? "").trim().toUpperCase() === "INACTIVE"
+  ).length;
+  const activeAgents = agents.filter(
+    (agent) => (agent.status_name ?? "").trim().toUpperCase() === "ACTIVE"
+  ).length;
 
   return {
-    agents: allAgents.length,
+    agents: agents.length,
     activeAgents,
     inactiveAgents,
     qaCount: qaMembers.length,
@@ -842,7 +799,6 @@ export async function getAccountTeamOverview(
   };
 }
 
-// Per-account summary used to build the dashboard overview.
 export type AccountSummary = {
   account: AccountLabel;
   accountKey: AccountKey;
@@ -852,7 +808,6 @@ export type AccountSummary = {
   qaCount: number;
 };
 
-// Role-aware rollup of all accounts the current user can see, with totals.
 export type DashboardOverview = {
   isManager: boolean;
   accounts: AccountSummary[];
@@ -863,81 +818,52 @@ export type DashboardOverview = {
   charts: DashboardChartAnalytics;
 };
 
-/**
- * Builds a role-aware overview of every account the current user can see.
- * Managers (and admins) see all accounts; everyone else sees only the
- * accounts they are assigned to. Counts are pulled live from the employee
- * assignment data so the dashboard reflects the real team structure.
- */
 export async function getDashboardOverview(
   user: AuthUser,
   timeframe: DashboardTimeframe = "Daily",
   anchorDate = new Date().toISOString().slice(0, 10)
 ): Promise<DashboardOverview> {
-    const isManager =
-      DASHBOARD_MANAGER_ROLES.includes(user.role) || user.role === "admin";
+  const isManager =
+    DASHBOARD_MANAGER_ROLES.includes(user.role) || user.role === "admin";
 
-    const accountCodes = isManager
-      ? (await getAccounts()).map((a) => a.account_code)
-      : (user.accounts ?? []).map((a) => a.account);
+  const accountCodes = isManager
+    ? (await getAccounts()).map((a) => a.account_code)
+    : (user.accounts ?? []).map((a) => a.account);
 
-    const accounts = await Promise.all(
-      accountCodes.map(async (code) => {
-        const overview = await getAccountTeamOverview(code, user);
-        const accountId = await getAccountIdByCode(code);
+  const accounts = await Promise.all(
+    accountCodes.map(async (code) => {
+      const overview = await getAccountTeamOverview(code, user);
 
-        let agentCount = overview.agents;
-        if (!isManager && accountId) {
-          const supabase = await createServerClient();
-          const { data: coachAssignments, error: coachAssignmentsError } = await supabase
-            .from("agent_assignments")
-            .select("agent_employee_id")
-            .eq("account_id", accountId)
-            .eq("qa_coach_employee_id", user.employee_id);
+      return {
+        account: code.toUpperCase() as AccountLabel,
+        accountKey: code.toLowerCase() as AccountKey,
+        agents: overview.agents,
+        activeAgents: overview.activeAgents,
+        inactiveAgents: overview.inactiveAgents,
+        qaCount: overview.qaCount,
+      };
+    })
+  );
 
-          if (coachAssignmentsError) throw coachAssignmentsError;
+  const totalAgents = accounts.reduce((sum, a) => sum + a.agents, 0);
+  const totalActiveAgents = accounts.reduce((sum, a) => sum + a.activeAgents, 0);
+  const totalInactiveAgents = accounts.reduce((sum, a) => sum + a.inactiveAgents, 0);
+  const totalQAs = accounts.reduce((sum, a) => sum + a.qaCount, 0);
 
-          const uniqueAgentIds = new Set(
-            (coachAssignments ?? [])
-              .map((a) => a.agent_employee_id)
-              .filter((id): id is number => id != null)
-          );
-          agentCount = uniqueAgentIds.size;
-        }
+  const charts = await getDashboardChartAnalytics(
+    accountCodes,
+    user,
+    timeframe,
+    anchorDate
+  );
 
-        return {
-          account: code.toUpperCase() as AccountLabel,
-          accountKey: code.toLowerCase() as AccountKey,
-          agents: overview.agents,
-          activeAgents: overview.activeAgents,
-          inactiveAgents: overview.inactiveAgents,
-          qaCount: overview.qaCount,
-        };
-      })
-    );
-
-    const totalAgents = accounts.reduce((sum, a) => sum + a.agents, 0);
-    const totalActiveAgents = accounts.reduce((sum, a) => sum + a.activeAgents, 0);
-    const totalInactiveAgents = accounts.reduce((sum, a) => sum + a.inactiveAgents, 0);
-    const totalQAs = accounts.reduce((sum, a) => sum + a.qaCount, 0);
-
-    // Fetch real chart analytics across all visible accounts. Non-manager
-    // users (QAs) are scoped to the agents under them; supervisors/admins
-    // see all data.
-    const charts = await getDashboardChartAnalytics(
-      accountCodes,
-      user,
-      timeframe,
-      anchorDate
-    );
-
-    return {
-      isManager,
-      accounts,
-      totalAgents,
-      totalActiveAgents,
-      totalInactiveAgents,
-      totalQAs,
-      charts,
-    };
+  return {
+    isManager,
+    accounts,
+    totalAgents,
+    totalActiveAgents,
+    totalInactiveAgents,
+    totalQAs,
+    charts,
+  };
 }
