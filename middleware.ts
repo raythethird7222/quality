@@ -33,16 +33,19 @@ export function middleware(request: NextRequest) {
     (path) => pathname === path || pathname.startsWith(path + "/")
   );
 
+  // Debug: log the authentication state
   const authCookie = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   const isAuthenticated = authCookie ? isValidAuthCookie(authCookie) : false;
 
   if (!isPublicPath && !isAuthenticated) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("redirect", pathname);
+    console.log("Middleware redirecting to login: path =", pathname, "isAuthenticated =", isAuthenticated);
     return NextResponse.redirect(loginUrl);
   }
 
   if (isPublicPath && isAuthenticated && pathname === "/login") {
+    console.log("Middleware redirecting to dashboard: path =", pathname, "isAuthenticated =", isAuthenticated);
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 

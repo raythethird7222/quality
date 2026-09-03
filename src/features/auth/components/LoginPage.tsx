@@ -193,10 +193,12 @@ export default function LoginPage() {
         <div className="absolute inset-0 bg-gradient-to-b from-[#132B43]/70 via-[#132B43]/35 to-[#132B43]/85" />
 
         {/* Decorative design at the bottom-left corner of the panel. */}
-        <div className="absolute -bottom-40 -left-44 h-[520px] w-[520px] rounded-full border-[80px] border-[#2F6798]/40" />
-        <div className="absolute -bottom-28 -left-32 h-[380px] w-[380px] rounded-full border-[55px] border-[#C8A54B]/30" />
+        <div className="absolute right-0 bottom-0 hidden lg:block">
+          <div className="absolute -bottom-40 -left-44 h-[520px] w-[520px] rounded-full border-[80px] border-[#2F6798]/40" />
+          <div className="absolute -bottom-28 -left-32 h-[380px] w-[380px] rounded-full border-[55px] border-[#C8A54B]/30" />
+        </div>
 
-        {/* Cebu Tele-Net Philippines logo at the top-left of the panel. */}
+        {/* Cebu Tele-Net Philippines logo at the top-left of the panel.
         <div className="absolute left-12 top-12 z-10 xl:left-16 xl:top-14">
           <Image
             src="https://zhdmsmwrskxowvytedgh.supabase.co/storage/v1/object/public/Images/cebu-tele-net-Philippines-300x138.png"
@@ -206,7 +208,7 @@ export default function LoginPage() {
             priority
             className="h-auto w-[150px] xl:w-[170px]"
           />
-        </div>
+        </div> */}
 
         {/* Brand content stays above the decorative layers. */}
         <div className="relative z-10 flex flex-1 flex-col justify-center p-12 xl:p-16">
