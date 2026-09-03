@@ -34,11 +34,36 @@ const ACCENTS: Accent[] = ["gold", "indigo", "crimson", "charcoal"];
 type TabKey = "appearance" | "profile" | "notifications" | "account";
 
 // Sidebar navigation entries, each tied to a TabKey and icon.
-const TABS: { key: TabKey; label: string; icon: typeof UserIcon }[] = [
-  { key: "appearance", label: "Appearance", icon: Palette },
-  { key: "profile", label: "Profile", icon: UserIcon },
-  { key: "notifications", label: "Notifications", icon: Bell },
-  { key: "account", label: "Account", icon: ShieldCheck },
+const TABS: {
+  key: TabKey;
+  label: string;
+  description: string;
+  icon: typeof UserIcon;
+}[] = [
+  {
+    key: "appearance",
+    label: "Appearance",
+    description: "Theme, accent, and visual style",
+    icon: Palette,
+  },
+  {
+    key: "profile",
+    label: "Profile",
+    description: "Photo and account details",
+    icon: UserIcon,
+  },
+  {
+    key: "notifications",
+    label: "Notifications",
+    description: "Alerts, reminders, and digest",
+    icon: Bell,
+  },
+  {
+    key: "account",
+    label: "Account",
+    description: "Session and sign-out controls",
+    icon: ShieldCheck,
+  },
 ];
 
 // Top-level settings view: renders the breadcrumb, header, tab nav, and the
@@ -62,6 +87,8 @@ export default function SettingsView() {
 
   // Display name used by the profile panel, falling back to "Operator".
   const name = user.employee_name ?? "Operator";
+  const activeTab = TABS.find((item) => item.key === tab) ?? TABS[0];
+  const ActiveIcon = activeTab.icon;
 
   // Page layout: breadcrumb, header, sidebar tabs, and the active panel.
   return (
@@ -72,31 +99,73 @@ export default function SettingsView() {
           segments={[{ label: "Settings" }]}
           accent="indigo"
         />
-        <header className="mt-4 border-b border-border-subtle pb-4">
-          <h1 className="text-[28px] font-bold tracking-tight">Settings</h1>
-          <p className="mt-1 text-[13px] text-text-secondary">
-            Manage your appearance, profile, and account preferences.
-          </p>
+        <header className="relative mt-4 overflow-hidden rounded-2xl border border-border-default bg-card p-5 shadow-sm sm:p-6">
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_top_right,rgba(47,103,152,0.22),transparent_58%)]" />
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex items-start gap-4">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-app-accent-soft text-app-accent ring-1 ring-app-accent/20">
+                <ActiveIcon className="h-6 w-6" aria-hidden="true" />
+              </span>
+              <div>
+                <h1 className="mt-1 text-[28px] font-bold tracking-tight sm:text-[32px]">
+                  Settings
+                </h1>
+                <p className="mt-1 max-w-2xl text-[13px] leading-5 text-text-secondary">
+                  Manage your appearance, profile, notifications, and account
+                  preferences from one place.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-2 text-[12px] sm:grid-cols-2 lg:min-w-[300px]">
+              <div className="rounded-xl border border-border-subtle bg-surface-raised/80 px-3 py-2">
+                <p className="font-medium text-text-muted">Signed in</p>
+                <p className="mt-0.5 truncate font-semibold text-text-primary">
+                  {name}
+                </p>
+              </div>
+              <div className="rounded-xl border border-border-subtle bg-surface-raised/80 px-3 py-2">
+                <p className="font-medium text-text-muted">Current section</p>
+                <p className="mt-0.5 font-semibold text-app-accent">
+                  {activeTab.label}
+                </p>
+              </div>
+            </div>
+          </div>
         </header>
 
-        <div className="mt-6 grid gap-6 md:grid-cols-[220px_1fr]">
+        <div className="mt-6 grid gap-6 lg:grid-cols-[280px_1fr]">
           <nav
-            className="flex gap-2 overflow-x-auto md:flex-col md:overflow-visible"
+            className="flex gap-2 overflow-x-auto rounded-2xl border border-border-default bg-card p-2 shadow-sm lg:sticky lg:top-20 lg:self-start lg:flex-col lg:overflow-visible"
             aria-label="Settings sections"
           >
-            {TABS.map(({ key, label, icon: Icon }) => (
+            {TABS.map(({ key, label, description, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
                 aria-current={tab === key}
-                className={`flex shrink-0 items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-left text-[13px] font-semibold transition ${
+                className={`group flex min-w-[190px] shrink-0 items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition lg:min-w-0 ${
                   tab === key
-                    ? "border-app-accent bg-app-accent-soft text-app-accent"
-                    : "border-border-default bg-card text-text-secondary hover:bg-surface-overlay"
+                    ? "border-app-accent bg-app-accent-soft text-app-accent shadow-sm"
+                    : "border-transparent text-text-secondary hover:border-border-subtle hover:bg-surface-overlay"
                 }`}
               >
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                {label}
+                <span
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                    tab === key
+                      ? "bg-app-accent text-white"
+                      : "bg-surface-raised text-text-muted group-hover:text-app-accent"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-semibold">
+                    {label}
+                  </span>
+                  <span className="mt-0.5 hidden truncate text-[11px] font-medium text-text-muted lg:block">
+                    {description}
+                  </span>
+                </span>
               </button>
             ))}
           </nav>
@@ -199,13 +268,19 @@ function AppearancePanel() {
               <button
                 key={value}
                 onClick={() => setTheme(value)}
-                className={`flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-[13px] font-semibold transition ${
+                className={`flex min-h-[92px] flex-col items-center justify-center gap-2 rounded-xl border px-3 py-4 text-[13px] font-semibold transition ${
                   active
-                    ? "border-app-accent bg-app-accent-soft text-app-accent"
-                    : "border-border-default bg-card text-text-secondary hover:bg-surface-overlay"
+                    ? "border-app-accent bg-app-accent-soft text-app-accent shadow-sm"
+                    : "border-border-default bg-surface-raised text-text-secondary hover:bg-surface-overlay"
                 }`}
               >
-                <Icon className="h-5 w-5" aria-hidden="true" />
+                <span
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                    active ? "bg-app-accent text-white" : "bg-card text-text-muted"
+                  }`}
+                >
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                </span>
                 {label}
               </button>
             );
@@ -221,7 +296,7 @@ function AppearancePanel() {
         title="Themes Design"
         description="Apply a complete look in one tap — it sets the mode, accent, and surface palette together. Fine-tune with the options below."
       >
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {THEME_DESIGNS.map((design) => {
             const active = mounted && activeDesignId === design.id;
             return (
@@ -229,14 +304,14 @@ function AppearancePanel() {
                 key={design.id}
                 onClick={() => applyThemeDesign(design)}
                 aria-pressed={active}
-                className={`flex flex-col gap-3 rounded-xl border p-3 text-left transition ${
+                className={`flex min-h-[172px] flex-col gap-3 rounded-xl border p-3 text-left transition ${
                   active
-                    ? "border-app-accent bg-app-accent-soft"
-                    : "border-border-default bg-card hover:bg-surface-overlay"
+                    ? "border-app-accent bg-app-accent-soft shadow-sm"
+                    : "border-border-default bg-surface-raised hover:bg-surface-overlay"
                 }`}
               >
                 <span
-                  className="flex h-14 items-end justify-between rounded-lg border p-2"
+                  className="flex h-16 items-end justify-between rounded-lg border p-2 shadow-inner"
                   style={{
                     backgroundColor: design.preview,
                     borderColor: active ? ACCENT_HEX[design.accent] : "transparent",
@@ -380,25 +455,29 @@ function ProfilePanel({ name }: { name: string }) {
   return (
     <div className="space-y-6">
       <Card title="Profile photo" description="Update the photo shown on your account.">
-        <div className="flex items-center gap-4">
-          <span className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-full border-2 border-app-accent bg-surface-raised">
-            {displayedAvatar ? (
-              // eslint-disable-next-line @next/next/no-img-element -- Stored profile photo
-              <img
-                src={displayedAvatar}
-                alt="Profile"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <span className="text-[28px] font-bold text-app-accent">
-                {initials}
-              </span>
-            )}
-          </span>
-          <div>
+        <div className="overflow-hidden rounded-2xl border border-border-subtle bg-surface-raised">
+          <div className="h-28 bg-[linear-gradient(135deg,rgba(47,103,152,0.28),rgba(47,103,152,0.08)_45%,rgba(255,255,255,0.18))] dark:bg-[linear-gradient(135deg,rgba(47,103,152,0.38),rgba(47,103,152,0.12)_45%,rgba(255,255,255,0.04))]" />
+          <div className="-mt-16 flex flex-col items-center px-5 pb-6 text-center">
+            <span className="grid h-32 w-32 shrink-0 place-items-center overflow-hidden rounded-full border-4 border-card bg-surface-raised shadow-lg ring-2 ring-app-accent/25">
+              {displayedAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element -- Stored profile photo
+                <img
+                  src={displayedAvatar}
+                  alt="Profile"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-[42px] font-bold text-app-accent">
+                  {initials}
+                </span>
+              )}
+            </span>
+            <p className="mt-3 max-w-full truncate text-[18px] font-bold text-text-primary">
+              {name}
+            </p>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-lg bg-app-accent px-4 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90"
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-app-accent px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:opacity-90"
             >
               <ImageIcon className="h-4 w-4" />
               Change photo
@@ -451,7 +530,7 @@ function ProfilePanel({ name }: { name: string }) {
       <Card title="Sessions" description="Quick access to your workspace.">
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-2 rounded-lg border border-border-default bg-card px-4 py-2.5 text-[13px] font-semibold text-text-secondary transition hover:bg-surface-overlay"
+          className="inline-flex items-center gap-2 rounded-lg border border-border-default bg-surface-raised px-4 py-2.5 text-[13px] font-semibold text-text-secondary transition hover:bg-surface-overlay"
         >
           <Laptop className="h-4 w-4" />
           Go to dashboard
@@ -561,7 +640,7 @@ function AccountPanel({ onLogout }: { onLogout: () => void }) {
       <Card title="Sign out" description="End your session on this device.">
         <button
           onClick={onLogout}
-          className="inline-flex items-center gap-2 rounded-lg bg-brand-crimson px-4 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90"
+          className="inline-flex items-center gap-2 rounded-lg bg-brand-crimson px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:opacity-90"
         >
           <LogOut className="h-4 w-4" />
           Log out
@@ -582,12 +661,16 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-border-default bg-card p-6 shadow-sm">
-      <h2 className="text-[17px] font-bold text-text-primary">{title}</h2>
-      {description && (
-        <p className="mt-1 text-[13px] text-text-secondary">{description}</p>
-      )}
-      <div className="mt-4">{children}</div>
+    <section className="overflow-hidden rounded-2xl border border-border-default bg-card shadow-sm">
+      <div className="border-b border-border-subtle bg-surface-raised/60 px-5 py-4 sm:px-6">
+        <h2 className="text-[17px] font-bold text-text-primary">{title}</h2>
+        {description && (
+          <p className="mt-1 text-[13px] leading-5 text-text-secondary">
+            {description}
+          </p>
+        )}
+      </div>
+      <div className="p-5 sm:p-6">{children}</div>
     </section>
   );
 }
@@ -618,10 +701,12 @@ function ToggleRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-6 py-4">
-      <div>
+      <div className="min-w-0">
         <p className="text-[14px] font-semibold text-text-primary">{label}</p>
         {description && (
-          <p className="mt-0.5 text-[12px] text-text-muted">{description}</p>
+          <p className="mt-0.5 text-[12px] leading-5 text-text-muted">
+            {description}
+          </p>
         )}
       </div>
       <button
@@ -629,13 +714,13 @@ function ToggleRow({
         aria-checked={checked}
         aria-label={label}
         onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full p-0.5 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-accent ${
           checked ? "bg-app-accent" : "bg-border-default"
         }`}
       >
         <span
-          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-            checked ? "translate-x-[22px]" : "translate-x-0.5"
+          className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition ${
+            checked ? "translate-x-5" : "translate-x-0"
           }`}
         />
       </button>

@@ -8,7 +8,7 @@
 // real-time status messages and stream the final answer.
 
 import { NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth";
+import { requireUser } from "@/server/auth/session";
 import {
   agentRequestSchema,
   type AgentResponse,
@@ -24,11 +24,16 @@ import {
 import { buildSystemPrompt } from "@/lib/agent/knowledge";
 import { buildAgentContext, buildMessageHistory } from "@/lib/agent/context";
 import { getToolByName, TOOL_REGISTRY } from "@/lib/agent/tools";
+import { enforceRateLimit } from "@/server/security/rate-limit";
+import { assertTrustedOrigin } from "@/server/security/origin";
+import { auditLog } from "@/server/audit";
+import { jsonError } from "@/server/security/http";
 import type { AgentContext } from "@/lib/agent/types";
 
-// Maximum number of tool-call rounds per request. Prevents infinite loops
-// where the LLM keeps requesting tools without converging on an answer.
+// Maximum number of tool-call rounds per request. Prevents infinite loops.
 const MAX_TOOL_ROUNDS = 5;
+// Maximum tool calls per round (guards against LLM requesting many tools at once).
+const MAX_TOOL_CALLS_PER_ROUND = 5;
 
 // Forces the route to run dynamically (no static optimization) so auth is
 // always checked at request time.
@@ -162,8 +167,11 @@ async function* runAgentLoop(
         ),
       });
 
+      // Limit tool calls per round to prevent abuse.
+      const toolCallsToProcess = completion.tool_calls.slice(0, MAX_TOOL_CALLS_PER_ROUND);
+
       // Execute each tool call.
-      for (const tc of completion.tool_calls) {
+      for (const tc of toolCallsToProcess) {
         const tool = getToolByName(tc.name);
 
         if (!tool) {
@@ -360,78 +368,74 @@ function getStatusMessage(toolName: string): string {
 // Request body: { message: string, history?: [], accountScope?: string }
 // Response: SSE stream of status events followed by the result event.
 export async function POST(request: Request) {
-  // Step 1: Authenticate. The agent inherits the user's authorization scope.
-  const user = await getAuthUser();
-  if (!user) {
-    return NextResponse.json(
-      { success: false, error: "Authentication required" } satisfies AgentResponse,
-      { status: 401 }
-    );
-  }
-
-  // Step 0: Verify the API key is configured before streaming starts.
-  // This check runs early so we can return a clear error instead of
-  // failing mid-stream with a generic message.
-  if (!process.env.OPENROUTER_API_KEY) {
-    console.error("[AGENT] OPENROUTER_API_KEY is not configured");
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Agent is not configured. Missing API key.",
-      } satisfies AgentResponse,
-      { status: 503 }
-    );
-  }
-
-  // Step 2: Parse and validate the request body with Zod.
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Invalid JSON body" } satisfies AgentResponse,
-      { status: 400 }
-    );
-  }
+    await assertTrustedOrigin();
+    await enforceRateLimit("agent", 15, 60_000);
 
-  const parsed = agentRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: parsed.error.issues[0]?.message ?? "Invalid request",
-      } satisfies AgentResponse,
-      { status: 400 }
-    );
-  }
+    const user = await requireUser();
 
-  const { message, history, accountScope } = parsed.data;
-
-  // Step 3: Build the agent context from the authenticated user.
-  const ctx = await buildAgentContext(user);
-
-  // If an account scope was specified, validate the user can access it.
-  if (accountScope) {
-    const hasAccess = ctx.accounts.some(
-      (a: { account: string }) =>
-        a.account.toUpperCase() === accountScope.toUpperCase()
-    );
-    if (!hasAccess) {
+    if (!process.env.OPENROUTER_API_KEY) {
+      console.error("[AGENT] OPENROUTER_API_KEY is not configured");
       return NextResponse.json(
         {
           success: false,
-          error: "You do not have access to the specified account.",
+          error: "Agent is not configured. Missing API key.",
         } satisfies AgentResponse,
-        { status: 403 }
+        { status: 503 }
       );
     }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Invalid JSON body" } satisfies AgentResponse,
+        { status: 400 }
+      );
+    }
+
+    const parsed = agentRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: parsed.error.issues[0]?.message ?? "Invalid request",
+        } satisfies AgentResponse,
+        { status: 400 }
+      );
+    }
+
+    const { message, history, accountScope } = parsed.data;
+
+    const ctx = await buildAgentContext(user);
+
+    if (accountScope) {
+      const hasAccess = ctx.accounts.some(
+        (a: { account: string }) =>
+          a.account.toUpperCase() === accountScope.toUpperCase()
+      );
+      if (!hasAccess) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "You do not have access to the specified account.",
+          } satisfies AgentResponse,
+          { status: 403 }
+        );
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(user, message, ctx.accounts);
+
+    auditLog("agent.request", {
+      employee_id: user.employee_id,
+      account_scope: accountScope ?? ctx.account,
+      message_length: message.length,
+    });
+
+    return createSSEStream(() => runAgentLoop(message, history, ctx, systemPrompt));
+  } catch (error) {
+    return jsonError(error);
   }
-
-  // Step 4: Build the system prompt with relevant knowledge modules.
-  // Pass the effective (expanded) accessible accounts so managers know they
-  // can query every account.
-  const systemPrompt = buildSystemPrompt(user, message, ctx.accounts);
-
-  // Step 5: Run the agent loop and stream results via SSE.
-  return createSSEStream(() => runAgentLoop(message, history, ctx, systemPrompt));
 }

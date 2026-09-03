@@ -1,55 +1,64 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
 const PUBLIC_PATHS = [
   "/login",
   "/auth/callback",
-  "/api/auth/login",
   "/api/auth/logout",
-  "/api/auth/google",
 ];
-const AUTH_COOKIE_NAME = "qa-rey-auth";
 
-function isValidAuthCookie(raw: string): boolean {
-  try {
-    const decoded = decodeURIComponent(raw);
-    const parsed = JSON.parse(decoded);
-    return !!(
-      parsed.employee_name &&
-      parsed.employee_email &&
-      parsed.employee_id &&
-      parsed.account &&
-      parsed.role
-    );
-  } catch {
-    return false;
+async function updateSession(request: NextRequest) {
+  const response = NextResponse.next({ request });
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    return { response, authenticated: false };
   }
+
+  const supabase = createServerClient(url, key, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          request.cookies.set(name, value);
+          response.cookies.set(name, value, options);
+        });
+      },
+    },
+  });
+
+  const { data, error } = await supabase.auth.getUser();
+  const authenticated = !error && Boolean(data.user);
+
+  return { response, authenticated };
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const isPublicPath = PUBLIC_PATHS.some(
     (path) => pathname === path || pathname.startsWith(path + "/")
   );
 
-  // Debug: log the authentication state
-  const authCookie = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-  const isAuthenticated = authCookie ? isValidAuthCookie(authCookie) : false;
+  const { response, authenticated } = await updateSession(request);
 
-  if (!isPublicPath && !isAuthenticated) {
+  if (!isPublicPath && !authenticated) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("redirect", pathname);
-    console.log("Middleware redirecting to login: path =", pathname, "isAuthenticated =", isAuthenticated);
     return NextResponse.redirect(loginUrl);
   }
 
-  if (isPublicPath && isAuthenticated && pathname === "/login") {
-    console.log("Middleware redirecting to dashboard: path =", pathname, "isAuthenticated =", isAuthenticated);
+  if (isPublicPath && authenticated && pathname === "/login") {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return NextResponse.next();
+  return response;
 }
 
 export const config = {

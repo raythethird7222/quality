@@ -1,7 +1,7 @@
 "use client";
 
 // Header: top navigation bar with theme toggle and the user profile menu.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -41,6 +41,22 @@ export default function Header({
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
   // Ref to the portal dropdown for outside-click detection.
   const portalMenuRef = useRef<HTMLDivElement>(null);
+  // Portal menu position, computed in an effect once the trigger is mounted.
+  const [portalPos, setPortalPos] = useState<{ top: number; right: number } | null>(null);
+
+  // Compute portal position from the trigger's bounding rect only while open,
+  // avoiding reading a ref during render.
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) {
+      setPortalPos(null);
+      return;
+    }
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPortalPos({
+      top: rect.bottom + 8,
+      right: window.innerWidth - rect.right,
+    });
+  }, [open]);
 
   // Hydration-safe mount detection
   // Marks the component as mounted so theme/client-only UI can render safely.
@@ -168,15 +184,15 @@ export default function Header({
               />
             </button>
 
-            {open && triggerRef.current && (
+            {open && portalPos && (
               createPortal(
                 <div
                   ref={portalMenuRef}
                   role="menu"
                   className="fixed w-52 overflow-hidden rounded-lg border border-border-default bg-card py-1.5 shadow-lg"
                   style={{
-                    top: `${triggerRef.current.getBoundingClientRect().bottom + 8}px`,
-                    right: `${window.innerWidth - triggerRef.current.getBoundingClientRect().right}px`,
+                    top: `${portalPos.top}px`,
+                    right: `${portalPos.right}px`,
                     zIndex: 9999,
                   }}
                 >

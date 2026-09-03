@@ -2,13 +2,21 @@
 
 import { z } from "zod";
 
-// Validates the login form: employee email plus an employee code as password.
+// Validates the login form: employee email plus the employee's actual password.
 export const loginSchema = z.object({
   email: z
     .string()
+    .trim()
     .min(1, "Email is required")
-    .email("Please enter a valid email address"),
-  password: z.string().min(1, "Employee code is required").trim(),
+    .email("Please enter a valid email address")
+    .max(254, "Email is invalid"),
+  // The password is validated and compared against the stored bcrypt hash.
+  password: z
+    .string()
+    .trim()
+    .min(1, "Email and Password are required")
+    .max(120, "Password is invalid")
+    .regex(/^[A-Za-z0-9._-]+$/, "Password is invalid"),
   rememberMe: z.boolean().optional().default(false),
 });
 
@@ -16,18 +24,23 @@ export type LoginInput = z.infer<typeof loginSchema>;
 
 // Validates a route param that carries a single account code.
 export const accountParamSchema = z.object({
-  account: z.string().min(1, "Account is required"),
+  account: z
+    .string()
+    .trim()
+    .min(1, "Account is required")
+    .max(32, "Account is invalid")
+    .regex(/^[A-Za-z0-9_-]+$/, "Account is invalid"),
 });
 
 // Validates route params for a single agent's roster page.
 export const rosterParamsSchema = z.object({
-  account: z.string().min(1, "Account is required"),
+  account: accountParamSchema.shape.account,
   slug: z.string().min(1, "Agent slug is required"),
 });
 
 // Validates route params for a single evaluation detail page.
 export const evaluationParamsSchema = z.object({
-  account: z.string().min(1, "Account is required"),
+  account: accountParamSchema.shape.account,
   slug: z.string().min(1, "Agent slug is required"),
   evaluationId: z.string().min(1, "Evaluation ID is required"),
 });
@@ -71,6 +84,44 @@ export const employeeQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().default(""),
-  account: z.string().optional(),
+  account: accountParamSchema.shape.account.optional(),
   role: z.string().optional(),
+});
+
+export const evaluationsQuerySchema = z.object({
+  account: accountParamSchema.shape.account,
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  agent: z.string().trim().min(1).optional(),
+});
+
+export const analyticsQuerySchema = z.object({
+  account: accountParamSchema.shape.account,
+  lob: z.string().trim().min(1).optional(),
+  guideline: z.string().trim().min(1).optional(),
+  timeframe: z.enum(["Daily", "Weekly", "Monthly"]).optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});
+
+export const dashboardQuerySchema = z.object({
+  timeframe: z.enum(["Daily", "Weekly", "Monthly"]),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+});
+
+export const createEvaluationSchema = z.object({
+  agentName: z.string().trim().min(1, "Agent is required"),
+  guideline: z.string().trim().min(1, "Guideline is required"),
+  evaluationDate: z.string().trim().min(1, "Evaluation date is required"),
+  qaScore: z.number().min(0).max(100),
+  ticketBill: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(5000).optional(),
+  checked: z
+    .array(
+      z.object({
+        parameterId: z.number().int().positive(),
+        checked: z.boolean(),
+      })
+    )
+    .min(1, "Checklist is required"),
 });

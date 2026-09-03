@@ -1,8 +1,7 @@
 // Quality data access: queries for QA evaluations, parameters, covers, MQPM
 // performance, and the analytics aggregations that power the dashboards.
 
-import { unstable_cache } from "next/cache";
-import { createServerClient } from "@/lib/supabase/server";
+import { createAdminClient, createServerClient } from "@/lib/supabase/server";
 import type { AuthUser } from "@/types";
 import {
   applyScopedAgentFilter,
@@ -12,47 +11,38 @@ import {
 } from "@/lib/db/helpers";
 
 // Resolves an account's numeric id from its (case-insensitive) code.
-// Cached 5 min — the accounts table is small, static reference data.
-export const getAccountIdByCode = unstable_cache(
-  async (accountCode: string): Promise<number | null> => {
-    const supabase = createServerClient();
-    const { data, error } = await supabase
-      .from("accounts")
-      .select("account_id")
-      .ilike("account_code", accountCode)
-      .maybeSingle();
-    if (error || !data) return null;
-    return data.account_id;
-  },
-  ["db", "account-id"],
-  { revalidate: 300, tags: ["db:accounts"] }
-);
+export async function getAccountIdByCode(accountCode: string): Promise<number | null> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("accounts")
+    .select("account_id")
+    .ilike("account_code", accountCode)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.account_id;
+}
 
-// Returns all employee statuses ordered by name. Cached 5 min — static data.
-export const getStatuses = unstable_cache(
-  async (): Promise<
-    { status_id: number; status_name: string }[]
-  > => {
-    const supabase = createServerClient();
-    const { data, error } = await supabase
-      .from("statuses")
-      .select("status_id, status_name")
-      .order("status_name", { ascending: true });
-    if (error) {
-      console.error("Error fetching statuses:", error);
-      return [];
-    }
-    return (data ?? []) as { status_id: number; status_name: string }[];
-  },
-  ["db", "statuses"],
-  { revalidate: 300, tags: ["db:statuses"] }
-);
+// Returns all employee statuses ordered by name.
+export async function getStatuses(): Promise<
+  { status_id: number; status_name: string }[]
+> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("statuses")
+    .select("status_id, status_name")
+    .order("status_name", { ascending: true });
+  if (error) {
+    console.error("Error fetching statuses:", error);
+    return [];
+  }
+  return (data ?? []) as { status_id: number; status_name: string }[];
+}
 
 // Returns all QA evaluations for an account, newest first.
 export async function getQaEvaluationsByAccount(accountCode: string) {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   const { data, error } = await supabase
     .from("evaluations")
     .select(
@@ -75,7 +65,7 @@ export async function getQaParametersByAccount(
 ) {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   let query = supabase
     .from("evaluation_parameters")
     .select(
@@ -110,7 +100,7 @@ export async function getEvaluationParameters(
 ) {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   let query = supabase
     .from("evaluation_parameters")
     .select(
@@ -188,10 +178,18 @@ export async function getAgentEmployeeId(
 ): Promise<number | null> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return null;
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
+  const { data: assignment } = await supabase
+    .from("agent_assignments")
+    .select("agent_employee_id")
+    .eq("account_id", accountId)
+    .limit(1);
+  const agentIds = [...new Set((assignment ?? []).map((row) => row.agent_employee_id))];
+  if (agentIds.length === 0) return null;
   const { data: agent } = await supabase
     .from("employees")
     .select("id")
+    .in("id", agentIds)
     .ilike("employee_name", agentName)
     .maybeSingle();
   return agent?.id ?? null;
@@ -201,7 +199,7 @@ export async function getAgentEmployeeId(
 export async function getAgentViciLink(
   agentName: string
 ): Promise<string | null> {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   const { data: agent } = await supabase
     .from("employees")
     .select("vici_link")
@@ -233,7 +231,25 @@ export async function createEvaluation(
     input.agentName
   );
   if (!accountId || !agentEmployeeId) return null;
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
+
+  const { data: assignment } = await supabase
+    .from("agent_assignments")
+    .select("assignment_id, lob_id, qa_evaluator_employee_id")
+    .eq("account_id", accountId)
+    .eq("agent_employee_id", agentEmployeeId)
+    .maybeSingle();
+
+  if (!assignment) {
+    return null;
+  }
+
+  if (
+    assignment.qa_evaluator_employee_id != null &&
+    assignment.qa_evaluator_employee_id !== input.qaEvaluatorEmployeeId
+  ) {
+    return null;
+  }
 
   // Build the checkbox_results JSONB object: { [parameterId]: checked }.
   const checkboxResults: Record<string, boolean> = {};
@@ -248,6 +264,7 @@ export async function createEvaluation(
       source_evaluation_id: sourceEvaluationId,
       evaluation_type: input.guideline,
       account_id: accountId,
+      lob_id: assignment.lob_id ?? null,
       agent_employee_id: agentEmployeeId,
       qa_evaluator_employee_id: input.qaEvaluatorEmployeeId,
       guideline: input.guideline,
@@ -273,7 +290,7 @@ export async function createEvaluation(
 export async function getCoversByAccount(accountCode: string) {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data: lobs, error: lobError } = await supabase
     .from("lobs")
@@ -298,7 +315,7 @@ export async function getCoversByAccount(accountCode: string) {
 export async function getMqpmPerformanceByAccount(accountCode: string) {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   const { data, error } = await supabase
     .from("rm_mqpm_performance")
     .select(
@@ -364,15 +381,13 @@ const PIE_FILLS = [
 
 // Computes the full evaluation analytics for an account, scoped to the
 // caller's role (managers see everything; others see only their agents).
-// Cached briefly (60s) because this is an aggregation over a date range and
-// is re-run frequently by the calendar/analytics views. The cache key includes
-// the account, user, and filter arguments, so per-user scoping is preserved.
-export const getAccountEvaluationAnalytics = unstable_cache(
-  async (
-    accountCode: string,
-    user?: AuthUser,
-    filters?: AnalyticsFilters
-  ): Promise<EvaluationAnalytics> => {
+// Kept uncached because this path still relies on request/session-aware data
+// and must not read cookies inside a cache scope.
+export async function getAccountEvaluationAnalytics(
+  accountCode: string,
+  user?: AuthUser,
+  filters?: AnalyticsFilters
+): Promise<EvaluationAnalytics> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) {
     return {
@@ -388,7 +403,7 @@ export const getAccountEvaluationAnalytics = unstable_cache(
     };
   }
 
-  const supabase = createServerClient();
+  const supabase = createAdminClient();
 
   let query = supabase
     .from("evaluations")
@@ -517,7 +532,7 @@ export const getAccountEvaluationAnalytics = unstable_cache(
 
   // Group scores into buckets based on the selected timeframe.
   function getDateKey(dateStr: string, tf: string): string {
-    if (!dateStr) return "Unknown";
+    if (!dateStr) return "";
     const d = new Date(dateStr);
     if (tf === "Weekly") {
       // ISO week: start from Monday.
@@ -572,7 +587,7 @@ export const getAccountEvaluationAnalytics = unstable_cache(
   for (const e of scored) {
     if (e.qa_score >= 90) continue;
     const key =
-      e.lob_id != null ? (lobName.get(e.lob_id) ?? "Unknown") : "Unassigned";
+      e.lob_id != null ? (lobName.get(e.lob_id) ?? "") : "";
     defectMap.set(key, (defectMap.get(key) ?? 0) + 1);
   }
   const barData = [...defectMap.entries()]
@@ -599,7 +614,7 @@ export const getAccountEvaluationAnalytics = unstable_cache(
         : 0;
       return {
         id,
-        name: employeeName.get(id) ?? "Unknown",
+        name: employeeName.get(id) ?? "",
         avg,
         count: v.count,
         trend: v.scores,
@@ -632,10 +647,7 @@ export const getAccountEvaluationAnalytics = unstable_cache(
     agentPerformance,
     filterOptions: { lobOptions, guidelineOptions },
   };
-  },
-  ["db", "evaluation-analytics"],
-  { revalidate: 30, tags: ["evaluations"] }
-);
+}
 
 // A single evaluation record for the month modal: denormalized with display names.
 export type AccountEvaluationRow = {
@@ -664,7 +676,7 @@ export async function getAccountEvaluationsForPeriod(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   let query = supabase
     .from("evaluations")
@@ -735,14 +747,14 @@ export async function getAccountEvaluationsForPeriod(
     evaluationId: e.evaluation_id,
     evaluationDate: e.evaluation_date,
     agentName: e.agent_employee_id != null
-      ? (employeeName.get(e.agent_employee_id) ?? "Unknown")
-      : "Unknown",
+      ? (employeeName.get(e.agent_employee_id) ?? "")
+      : "",
     coachName: e.qa_coach_employee_id != null
-      ? (employeeName.get(e.qa_coach_employee_id) ?? "Unknown")
-      : "Unknown",
+      ? (employeeName.get(e.qa_coach_employee_id) ?? "")
+      : "",
     evaluatorName: e.qa_evaluator_employee_id != null
-      ? (employeeName.get(e.qa_evaluator_employee_id) ?? "Unknown")
-      : "Unknown",
+      ? (employeeName.get(e.qa_evaluator_employee_id) ?? "")
+      : "",
     guideline: e.guideline,
     qaScore: e.qa_score,
     ticketBill: e.ticket_bill,
@@ -751,35 +763,69 @@ export async function getAccountEvaluationsForPeriod(
 
 // Aggregated chart analytics across multiple accounts for the main dashboard.
 export type DashboardChartAnalytics = {
-  trendData: { month: string; score: number }[];
+  trendData: { date: string; score: number; count: number }[];
   barData: { defect: string; count: number }[];
   avgScore: number | null;
   topAgents: { name: string; score: string }[];
   bottomAgents: { name: string; score: string }[];
 };
 
-const TREND_MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
+export type DashboardTimeframe = "Daily" | "Weekly" | "Monthly";
 
-// Cached 2 minutes — heavy evaluation aggregation across all accounts.
-export const getDashboardChartAnalytics = unstable_cache(
-  async (
-    accountCodes: string[],
-    user?: AuthUser
-  ): Promise<DashboardChartAnalytics> => {
+function formatDateKey(date: Date): string {
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+export function getDashboardDateRange(
+  timeframe: DashboardTimeframe,
+  anchorDate = new Date()
+): { startDate: string; endDate: string } {
+  const anchor = new Date(
+    Date.UTC(
+      anchorDate.getUTCFullYear(),
+      anchorDate.getUTCMonth(),
+      anchorDate.getUTCDate()
+    )
+  );
+  const start = new Date(anchor);
+  const end = new Date(anchor);
+
+  if (timeframe === "Weekly") {
+    const weekday = start.getUTCDay();
+    start.setUTCDate(start.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
+    end.setTime(start.getTime());
+    end.setUTCDate(end.getUTCDate() + 6);
+  } else if (timeframe === "Monthly") {
+    start.setUTCDate(1);
+    end.setUTCMonth(end.getUTCMonth() + 1, 0);
+  }
+
+  return { startDate: formatDateKey(start), endDate: formatDateKey(end) };
+}
+
+export async function getDashboardChartAnalytics(
+  accountCodes: string[],
+  user?: AuthUser,
+  timeframe: DashboardTimeframe = "Daily",
+  anchorDate = formatDateKey(new Date())
+): Promise<DashboardChartAnalytics> {
   if (accountCodes.length === 0) {
     return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
   }
 
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   // Resolve all account ids from the provided codes.
-  const { data: accounts } = await supabase
+  const { data: accounts, error: accountsError } = await supabase
     .from("accounts")
     .select("account_id, account_code")
     .in("account_code", accountCodes);
+
+  if (accountsError) throw accountsError;
 
   if (!accounts || accounts.length === 0) {
     return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
@@ -791,13 +837,15 @@ export const getDashboardChartAnalytics = unstable_cache(
   // managers/supervisors/admins see all evaluations.
   let scopedAgentIds: number[] | null = null;
   if (user && !isManagerRole(user.role)) {
-    const { data: scopedAssignments } = await supabase
+    const { data: scopedAssignments, error: scopedAssignmentsError } = await supabase
       .from("agent_assignments")
       .select("agent_employee_id")
       .in("account_id", accountIds)
       .or(
         `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
       );
+
+    if (scopedAssignmentsError) throw scopedAssignmentsError;
 
     scopedAgentIds = [
       ...new Set(
@@ -808,11 +856,19 @@ export const getDashboardChartAnalytics = unstable_cache(
     ];
   }
 
-  // Fetch all evaluations for the relevant accounts.
+  const { startDate, endDate } = getDashboardDateRange(
+    timeframe,
+    new Date(`${anchorDate}T00:00:00Z`)
+  );
+  const inclusiveEndDate = `${endDate} 23:59:59.999`;
+
+  // Fetch only evaluations inside the selected calendar period.
   let query = supabase
     .from("evaluations")
     .select("evaluation_id, account_id, lob_id, agent_employee_id, qa_score, evaluation_date")
     .in("account_id", accountIds)
+    .gte("evaluation_date", startDate)
+    .lte("evaluation_date", inclusiveEndDate)
     .order("evaluation_date", { ascending: true });
 
   if (scopedAgentIds) {
@@ -824,7 +880,8 @@ export const getDashboardChartAnalytics = unstable_cache(
 
   const { data, error } = await query;
 
-  if (error || !data || data.length === 0) {
+  if (error) throw error;
+  if (!data || data.length === 0) {
     return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
   }
 
@@ -838,10 +895,12 @@ export const getDashboardChartAnalytics = unstable_cache(
   }[];
 
   // Load LOB names for defect distribution labels.
-  const { data: lobs } = await supabase
+  const { data: lobs, error: lobsError } = await supabase
     .from("lobs")
     .select("lob_id, lob_name")
     .in("account_id", accountIds);
+
+  if (lobsError) throw lobsError;
 
   const lobName = new Map<number, string>(
     (lobs ?? []).map((l) => [l.lob_id, l.lob_name])
@@ -859,27 +918,25 @@ export const getDashboardChartAnalytics = unstable_cache(
         )
       : null;
 
-  // Trend: average QA score per month, grouped by year-month.
-  const monthMap = new Map<string, { sum: number; n: number }>();
+  // Keep daily averages so the dashboard can group the same source data by
+  // day, week, or month without losing the original date granularity.
+  const dayMap = new Map<string, { sum: number; n: number }>();
   for (const e of scored) {
     if (!e.evaluation_date) continue;
-    // Extract YYYY-MM for grouping, then format as "Mon YYYY" label.
-    const parts = e.evaluation_date.split("-");
-    if (parts.length < 2) continue;
-    const key = `${parts[0]}-${parts[1]}`;
-    const cur = monthMap.get(key) ?? { sum: 0, n: 0 };
+    const key = e.evaluation_date.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+    const cur = dayMap.get(key) ?? { sum: 0, n: 0 };
     cur.sum += e.qa_score;
     cur.n += 1;
-    monthMap.set(key, cur);
+    dayMap.set(key, cur);
   }
-  const trendData = [...monthMap.entries()]
+  const trendData = [...dayMap.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([key, v]) => {
-      const [, monthPart] = key.split("-");
-      const monthIndex = parseInt(monthPart, 10) - 1;
-      const label = TREND_MONTHS[monthIndex] ?? key;
-      return { month: label, score: Number((v.sum / v.n).toFixed(2)) };
-    });
+    .map(([date, v]) => ({
+      date,
+      score: Number((v.sum / v.n).toFixed(2)),
+      count: v.n,
+    }));
 
   // Bar: structural defect distribution = count of below-standard (<90%)
   // evaluations per LOB across all accounts.
@@ -887,7 +944,7 @@ export const getDashboardChartAnalytics = unstable_cache(
   for (const e of scored) {
     if (e.qa_score >= 90) continue;
     const key =
-      e.lob_id != null ? (lobName.get(e.lob_id) ?? "Unknown") : "Unassigned";
+      e.lob_id != null ? (lobName.get(e.lob_id) ?? "") : "";
     defectMap.set(key, (defectMap.get(key) ?? 0) + 1);
   }
   const barData = [...defectMap.entries()]
@@ -919,7 +976,7 @@ export const getDashboardChartAnalytics = unstable_cache(
     const entry = agentScoreMap.get(id);
     const avg = entry && entry.count ? (entry.sum / entry.count).toFixed(1) : "0.0";
     return {
-      name: employeeName.get(id) ?? "Unknown",
+      name: employeeName.get(id) ?? "",
       score: `${avg}%`,
     };
   };
@@ -928,10 +985,7 @@ export const getDashboardChartAnalytics = unstable_cache(
   const bottomAgents = bottomAgentIds.map(formatAgent);
 
   return { trendData, barData, avgScore, topAgents, bottomAgents };
-  },
-  ["dashboard", "chart-analytics"],
-  { revalidate: 120, tags: ["dashboard", "evaluations"] }
-);
+}
 
 // Returns evaluations for a specific agent within an account, for the roster calendar.
 export type AgentEvaluation = {
@@ -951,7 +1005,7 @@ export async function getAgentAssignment(
 ): Promise<{ coachId: number | null; evaluatorId: number | null; lobId: number | null }> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return { coachId: null, evaluatorId: null, lobId: null };
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data: agent } = await supabase
     .from("employees")
@@ -982,7 +1036,7 @@ export async function getAgentEvaluations(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   // Resolve the agent's employee id by name within this account.
   const { data: agent } = await supabase
@@ -1021,7 +1075,7 @@ export async function getEvaluationById(
   evaluation_date: string | null;
   checkbox_results: Record<string, boolean> | null;
 } | null> {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   const { data, error } = await supabase
     .from("evaluations")
     .select(
@@ -1043,7 +1097,7 @@ export async function getEvaluationById(
 
 // Returns all assignment reporting (supervisor relationships), newest first.
 export async function getAssignmentReporting() {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   const { data, error } = await supabase
     .from("assignment_reporting")
     .select(

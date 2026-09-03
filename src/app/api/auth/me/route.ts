@@ -1,26 +1,17 @@
-// API route: returns the currently authenticated user, including their avatar URL.
-import { NextResponse } from "next/server";
+// API route: returns authenticated user info.
+
 import { getAuthUser } from "@/lib/auth";
-import { getEmployeeAvatarUrl } from "@/lib/db/employees";
+import { AuthenticationError } from "@/server/security/errors";
+import { jsonError, jsonOk } from "@/server/security/http";
 
-// Handles the GET request for the current session user, returning 401 if not authenticated.
 export async function GET() {
-  // Resolve the currently authenticated user from the session.
-  const user = await getAuthUser();
-
-  // Return 401 when no authenticated user is present.
-  if (!user) {
-    return NextResponse.json(
-      { success: false, error: "Not authenticated" },
-      { status: 401 }
-    );
+  try {
+    const user = await getAuthUser();
+    if (!user) {
+      throw new AuthenticationError("Not authenticated");
+    }
+    return jsonOk({ success: true, user });
+  } catch (error) {
+    return jsonError(error);
   }
-
-  // Fetch the employee's avatar URL to include in the response.
-  const avatarUrl = await getEmployeeAvatarUrl(user.employee_email);
-
-  return NextResponse.json({
-    success: true,
-    user: { ...user, avatar_url: avatarUrl ?? undefined },
-  });
 }

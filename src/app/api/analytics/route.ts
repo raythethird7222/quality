@@ -1,37 +1,47 @@
-// API route: returns analytics for an account, used by Realtime refetch and filter-driven re-fetches.
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth";
+// API route: returns analytics for an account with authorization checks.
+
+import { NextRequest } from "next/server";
+import { requireAccountAccess } from "@/server/auth/session";
 import { getAccountQaName } from "@/lib/db/employees";
 import { getAccountEvaluationAnalytics } from "@/lib/db/quality";
+import { jsonError, jsonOk } from "@/server/security/http";
+import { enforceRateLimit } from "@/server/security/rate-limit";
+import { analyticsQuerySchema } from "@/lib/validation";
+import { ValidationError } from "@/server/security/errors";
 
 export async function GET(req: NextRequest) {
-  const account = req.nextUrl.searchParams.get("account");
-  if (!account) {
-    return NextResponse.json(
-      { error: "Missing account parameter" },
-      { status: 400 }
-    );
+  try {
+    await enforceRateLimit("analytics", 60, 60_000);
+
+    const params = {
+      account: req.nextUrl.searchParams.get("account") ?? "",
+      lob: req.nextUrl.searchParams.get("lob") ?? undefined,
+      guideline: req.nextUrl.searchParams.get("guideline") ?? undefined,
+      timeframe: req.nextUrl.searchParams.get("timeframe") ?? undefined,
+      dateFrom: req.nextUrl.searchParams.get("dateFrom") ?? undefined,
+      dateTo: req.nextUrl.searchParams.get("dateTo") ?? undefined,
+    };
+
+    const parsed = analyticsQuerySchema.safeParse(params);
+    if (!parsed.success) {
+      throw new ValidationError("Invalid parameters: " + parsed.error.issues[0]?.message);
+    }
+
+    const { user, accountCode } = await requireAccountAccess(parsed.data.account);
+
+    const [qaName, analytics] = await Promise.all([
+      getAccountQaName(accountCode, user.employee_name),
+      getAccountEvaluationAnalytics(accountCode, user, {
+        lob: parsed.data.lob,
+        guideline: parsed.data.guideline,
+        timeframe: parsed.data.timeframe,
+        dateFrom: parsed.data.dateFrom,
+        dateTo: parsed.data.dateTo,
+      }),
+    ]);
+
+    return jsonOk({ qaName, ...analytics });
+  } catch (error) {
+    return jsonError(error);
   }
-
-  const user = await getAuthUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const lob = req.nextUrl.searchParams.get("lob") ?? undefined;
-  const guideline = req.nextUrl.searchParams.get("guideline") ?? undefined;
-  const timeframe = req.nextUrl.searchParams.get("timeframe") ?? undefined;
-  const dateFrom = req.nextUrl.searchParams.get("dateFrom") ?? undefined;
-  const dateTo = req.nextUrl.searchParams.get("dateTo") ?? undefined;
-
-  const qaName = await getAccountQaName(account, user.employee_name);
-  const analytics = await getAccountEvaluationAnalytics(account, user, {
-    lob,
-    guideline,
-    timeframe,
-    dateFrom,
-    dateTo,
-  });
-
-  return NextResponse.json({ qaName, ...analytics });
 }

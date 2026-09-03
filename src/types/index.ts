@@ -46,6 +46,7 @@ export type AccountAssignment = {
 };
 
 export type AuthUser = {
+  auth_user_id?: string;
   employee_id: number;
   employee_name: string;
   employee_email: string;
@@ -72,6 +73,7 @@ export type TeamMember = {
   initial: string;
   agents: number;
   employeeId?: number;
+  employeeCode?: string;
 };
 
 export type AgentPerformance = {

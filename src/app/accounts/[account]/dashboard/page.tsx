@@ -44,7 +44,7 @@ export default async function AccountDashboardPage({
   // If a specific QA is requested via query param, look up that QA's employee info.
   let targetUser = user;
   if (qaId) {
-    const supabase = createServerClient();
+    const supabase = await createServerClient();
     const { data: targetEmployee } = await supabase
       .from("employees")
       .select("id, employee_name")

@@ -1,81 +1,183 @@
-// API route: authenticates a user with email and employee code, issuing an auth cookie on success.
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { loginSchema } from "@/lib/validation";
-import { getEmployeeByEmailAndPassword } from "@/lib/db/employees";
-import { buildAuthUserFromEmployee } from "@/lib/auth";
+import { createAdminClient, createServerClient } from "@/lib/supabase/server";
+import { resolveAuthenticatedEmployee } from "@/server/auth/session";
+import { assertTrustedOrigin } from "@/server/security/origin";
+import { enforceRateLimit } from "@/server/security/rate-limit";
+import { ValidationError, AuthenticationError } from "@/server/security/errors";
+import { jsonError, jsonOk } from "@/server/security/http";
 
-// Handles the POST request for credential-based login and validates input before issuing the cookie.
-export async function POST(request: NextRequest) {
-  try {
-    // Parse the request body and validate it against the login schema.
-    const body = await request.json();
-    const parsed = loginSchema.safeParse(body);
+type VerifiedEmployee = {
+  employee_id: number;
+  employee_code: string | null;
+  employee_name: string | null;
+  employee_email: string | null;
+  avatar_url: string | null;
+};
 
-    // Return the first validation error when input is invalid.
-    if (!parsed.success) {
-      const errorMessage =
-        parsed.error.issues[0]?.message ?? "Invalid input";
-      return NextResponse.json(
-        { success: false, error: errorMessage },
-        { status: 400 }
-      );
+type EmployeeLoginRow = {
+  id: number;
+  employee_code: string | null;
+  employee_name: string | null;
+  employee_email: string | null;
+  avatar_url: string | null;
+};
+
+async function findAuthUserByEmail(email: string) {
+  const admin = createAdminClient();
+  let page = 1;
+
+  while (page <= 10) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) {
+      throw new Error("Unable to inspect auth users");
     }
 
-    // Extract validated credentials from the parsed request.
-    const { email, password } = parsed.data;
+    const match =
+      data.users.find(
+        (user) => user.email?.trim().toLowerCase() === email
+      ) ?? null;
 
-    // Verify the email and employee code against stored credentials.
-    const employee = await getEmployeeByEmailAndPassword(email, password);
-
-    // Reject the login when credentials do not match.
-    if (!employee) {
-      return NextResponse.json(
-        { success: false, error: "Invalid email or employee code" },
-        { status: 401 }
-      );
+    if (match) {
+      return match;
     }
 
-    // Build the authenticated user (with assignments) from the employee record.
-    const user = await buildAuthUserFromEmployee(employee);
-
-    // Deny access when the employee has no valid account assignments.
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "No account assignments found. Please contact your administrator.",
-        },
-        { status: 403 }
-      );
+    if (!data.nextPage || data.users.length === 0) {
+      return null;
     }
 
-    if (user.role === "agent") {
-      return NextResponse.json(
-        { success: false, error: "Invalid email or employee code" },
-        { status: 401 }
-      );
+    page = data.nextPage;
+  }
+
+  return null;
+}
+
+async function ensureEmailCodeAuthUser(email: string, employeeCode: string) {
+  const admin = createAdminClient();
+  const normalizedPassword = employeeCode;
+  const { data, error } = await (
+    admin.rpc as unknown as (
+      fn: string,
+      args: Record<string, unknown>
+    ) => Promise<{ data: unknown; error: { message: string } | null }>
+  )("verify_employee_login", {
+    p_email: email,
+    p_password: normalizedPassword,
+  });
+
+  let employee = ((data as VerifiedEmployee[] | null) ?? [])[0] ?? null;
+
+  if (error) {
+    const lookup = await admin
+      .from("employees")
+      .select("id, employee_code, employee_name, employee_email, avatar_url")
+      .ilike("employee_email", email)
+      .maybeSingle();
+
+    if (lookup.error) {
+      throw new Error("Unable to verify employee login");
     }
 
-    // Build the success response and attach the auth cookie.
-    const response = NextResponse.json({ success: true, user });
+    const fallbackEmployee = lookup.data as EmployeeLoginRow | null;
+    const matchesCode =
+      fallbackEmployee?.employee_code?.trim().toUpperCase() === employeeCode;
 
-    // Persistent cookie when "Remember me" is checked, otherwise a 24-hour session.
-    response.cookies.set("qa-rey-auth", JSON.stringify(user), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: parsed.data.rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24,
+    if (!fallbackEmployee || !matchesCode) {
+      throw new AuthenticationError("Invalid email or employee code");
+    }
+
+    employee = {
+      employee_id: fallbackEmployee.id,
+      employee_code: fallbackEmployee.employee_code,
+      employee_name: fallbackEmployee.employee_name,
+      employee_email: fallbackEmployee.employee_email,
+      avatar_url: fallbackEmployee.avatar_url,
+    };
+  }
+
+  if (!employee) {
+    throw new AuthenticationError("Invalid email or employee code");
+  }
+
+  const authUser = await findAuthUserByEmail(email);
+
+  if (authUser) {
+    const { error: updateError } = await admin.auth.admin.updateUserById(authUser.id, {
+      password: normalizedPassword,
+      email_confirm: true,
+      user_metadata: {
+        employee_id: employee.employee_id,
+      },
     });
 
-    return response;
-  // Catch unexpected failures and return a generic server error.
-  } catch (error) {
-    console.error("Login error:", error);
-    return NextResponse.json(
-      { success: false, error: "Internal server error" },
-      { status: 500 }
+    if (updateError) {
+      throw new Error("Unable to sync employee login credentials");
+    }
+
+    return normalizedPassword;
+  }
+
+  const { error: createError } = await admin.auth.admin.createUser({
+    email,
+    password: normalizedPassword,
+    email_confirm: true,
+    user_metadata: {
+      employee_id: employee.employee_id,
+    },
+  });
+
+  if (createError) {
+    throw new Error("Unable to provision employee login credentials");
+  }
+
+  return normalizedPassword;
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    await assertTrustedOrigin();
+    await enforceRateLimit("login", 10, 60_000);
+
+    const body = await request.json();
+    const parsed = loginSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input");
+    }
+
+    const email = parsed.data.email.trim().toLowerCase();
+    const employeeCode = parsed.data.password.trim();
+    const supabase = await createServerClient();
+
+    let normalizedPassword = employeeCode;
+    let { data: signInData, error } = await supabase.auth.signInWithPassword({
+      email,
+      password: normalizedPassword,
+    });
+
+    if (error) {
+      normalizedPassword = await ensureEmailCodeAuthUser(email, employeeCode);
+      const retry = await supabase.auth.signInWithPassword({
+        email,
+        password: normalizedPassword,
+      });
+      signInData = retry.data;
+      error = retry.error;
+    }
+
+    if (error) {
+      throw new AuthenticationError("Invalid email or employee code");
+    }
+
+    const user = await resolveAuthenticatedEmployee(
+      signInData.user?.id ?? "",
+      signInData.user?.email
     );
+    if (!user) {
+      throw new AuthenticationError("Invalid email or employee code");
+    }
+
+    return jsonOk({ success: true, user });
+  } catch (error) {
+    return jsonError(error);
   }
 }

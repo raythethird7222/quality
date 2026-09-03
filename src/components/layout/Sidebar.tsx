@@ -3,20 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Building2,
   LayoutDashboard,
   LogOut,
   Settings,
   X,
   Menu,
-  ChevronLeft,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { ACCOUNTS } from "@/features/accounts/config";
 import { getInitials, cn } from "@/lib/utils";
-import { useAccent, useAccentHex, useThemeDesign } from "@/features/settings/useAccent";
-import { useTheme } from "@/components/ui/ThemeProvider";
+import { useAccentHex, useThemeDesign } from "@/features/settings/useAccent";
 import type { AccountKey, UserRole } from "@/types";
 
 // ============================================================
@@ -62,6 +61,12 @@ const TOP_NAV: NavItem[] = [
     roles: ALL_ROLES,
   },
   {
+    href: "/accounts/manage",
+    label: "Manage Accounts",
+    icon: Building2,
+    roles: ["admin", "quality_coordinator", "account_manager", "qa_supervisor"],
+  },
+  {
     href: "/settings",
     label: "Settings",
     icon: Settings,
@@ -82,22 +87,26 @@ export default function Sidebar({
 }) {
   const pathname = usePathname();
   const { user, requestLogout } = useAuth();
-  const { resolvedTheme } = useTheme();
-  const accent = useAccent();
   const accentHex = useAccentHex();
   const themeDesign = useThemeDesign();
 
-  // Determine if the accent color is dark (needs a light logo) or light (needs
-  // a dark logo). Computes relative luminance from the resolved accent hex.
-  const isDarkAccent = (() => {
+  // Calculate WCAG relative luminance from the rendered accent pixel so the
+  // sidebar foreground automatically flips between dark and light.
+  const accentLuminance = (() => {
     const hex = accentHex.replace("#", "");
-    const r = parseInt(hex.substring(0, 2), 16) / 255;
-    const g = parseInt(hex.substring(2, 4), 16) / 255;
-    const b = parseInt(hex.substring(4, 6), 16) / 255;
-    // Relative luminance (sRGB approximation).
-    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    return luminance < 0.5;
+    const toLinear = (channel: string) => {
+      const value = parseInt(channel, 16) / 255;
+      return value <= 0.04045
+        ? value / 12.92
+        : ((value + 0.055) / 1.055) ** 2.4;
+    };
+    const r = toLinear(hex.substring(0, 2));
+    const g = toLinear(hex.substring(2, 4));
+    const b = toLinear(hex.substring(4, 6));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   })();
+  const isDarkAccent = accentLuminance < 0.5;
+  const sidebarForeground = accentLuminance > 0.179 ? "#000000" : "#ffffff";
 
   // Use the dark-mode logo when the sidebar background is a dark color,
   // except for Classic and Midnight which use the original logo.
@@ -211,7 +220,8 @@ export default function Sidebar({
         )}
         style={{
           backgroundColor: "var(--app-accent)",
-        }}
+          "--app-accent-contrast": sidebarForeground,
+        } as CSSProperties}
         aria-label="Primary navigation"
       >
         {/* ==================================================
@@ -286,8 +296,9 @@ export default function Sidebar({
 
         <nav
           className={cn(
-            "flex-1 overflow-y-auto py-4",
-            collapsed ? "px-2" : "px-3"
+            "no-scrollbar relative z-10 flex-1 overflow-y-auto py-4",
+            collapsed ? "px-2" : "px-3",
+            "pb-28"
           )}
         >
           {/* ==================================================
@@ -319,7 +330,7 @@ export default function Sidebar({
                       : "gap-3 px-3",
                     active
                       ? "opacity-100"
-                      : "text-[var(--app-accent-contrast)] opacity-80 hover:bg-white/10 hover:opacity-100"
+                      : "text-[var(--app-accent-contrast)] hover:bg-white/10"
                   )}
                   style={
                     active
@@ -354,7 +365,7 @@ export default function Sidebar({
               {/* SECTION TITLE */}
 
               {!collapsed && (
-                <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--app-accent-contrast)] opacity-70">
+                <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--app-accent-contrast)]">
                   Accounts
                 </p>
               )}
@@ -383,7 +394,7 @@ export default function Sidebar({
                         : "ml-3 px-3",
                       active
                         ? "opacity-100"
-                        : "text-[var(--app-accent-contrast)] opacity-80 hover:bg-white/10 hover:opacity-100"
+                        : "text-[var(--app-accent-contrast)] hover:bg-white/10"
                     )}
                     style={
                       active
@@ -420,8 +431,8 @@ export default function Sidebar({
         ================================================== */}
 
         {!collapsed && (
-          <div className="shrink-0">
-            <div className="">
+          <div className="pointer-events-none absolute inset-x-3 bottom-20 z-20">
+            <div>
               <img
                 src="https://zhdmsmwrskxowvytedgh.supabase.co/storage/v1/object/public/Images/design%20(1).png"
                 alt=""
@@ -468,7 +479,7 @@ export default function Sidebar({
                   {user.employee_name ?? ""}
                 </p>
 
-                <p className="truncate text-xs text-[var(--app-accent-contrast)] opacity-70">
+                <p className="truncate text-xs text-[var(--app-accent-contrast)]">
                   {user.role_name ?? ""}
                 </p>
               </div>

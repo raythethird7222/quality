@@ -510,3 +510,12 @@ body {
     @apply bg-background font-sans;
   }
 }
+
+/* Hides the native scrollbar while keeping scroll behavior (used in the sidebar). */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

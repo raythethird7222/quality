@@ -44,6 +44,7 @@ export default async function AccountPage({
     <ManagerDashboard
       account={config.label}
       agents={overview.agents}
+      inactiveAgents={overview.inactiveAgents}
       qaCount={overview.qaCount}
       members={overview.members}
     />

@@ -1,6 +1,8 @@
 // Browser-side Supabase client factory used in client components.
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient as createSupabaseBrowserClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database";
 
 // Singleton instance reused across all client component calls.
 let cachedClient: SupabaseClient | null = null;
@@ -10,7 +12,9 @@ export function createBrowserClient() {
   if (cachedClient) return cachedClient;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!url || !key) {
     throw new Error(
@@ -18,14 +22,16 @@ export function createBrowserClient() {
     );
   }
 
-  cachedClient = createClient(url, key, {
+  cachedClient = createSupabaseBrowserClient<Database>(url, key, {
+    cookieOptions: {
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+    },
     auth: {
       flowType: "pkce",
       persistSession: true,
       autoRefreshToken: true,
-      // The /auth/callback page exchanges the code manually. Disabling
-      // auto-detection prevents the client from consuming the PKCE code
-      // verifier on load, which caused "code verifier not found" errors.
       detectSessionInUrl: false,
     },
   });

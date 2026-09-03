@@ -1,8 +1,7 @@
 // Employee data access: queries for employees, their account/role/LOB
 // assignments, and aggregated team/dashboard overviews via Supabase.
 
-import { unstable_cache } from "next/cache";
-import { createServerClient } from "@/lib/supabase/server";
+import { createAdminClient, createServerClient } from "@/lib/supabase/server";
 import type {
   AccountKey,
   AccountLabel,
@@ -13,8 +12,10 @@ import type {
 } from "@/types";
 import {
   getAccountIdByCode,
+  getStatuses,
   getDashboardChartAnalytics,
   type DashboardChartAnalytics,
+  type DashboardTimeframe,
 } from "@/lib/db/quality";
 import { getScopedAgentIds } from "@/lib/db/helpers";
 
@@ -55,56 +56,41 @@ export type EnrichedAssignment = {
   lob_name: string | null;
 };
 
-// Loads all accounts from the database (cached 5 min — reference data).
-const loadAccounts = unstable_cache(
-  async (): Promise<AccountRow[]> => {
-    const supabase = createServerClient();
-    const { data, error } = await supabase
-      .from("accounts")
-      .select("account_id, account_code, account_name");
-    if (error) {
-      console.error("Error loading accounts:", error);
-      return [];
-    }
-    return (data ?? []) as AccountRow[];
-  },
-  ["employees", "accounts"],
-  { revalidate: 300, tags: ["db:accounts"] }
-);
+async function loadAccounts(): Promise<AccountRow[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("accounts")
+    .select("account_id, account_code, account_name");
+  if (error) {
+    console.error("Error loading accounts:", error);
+    return [];
+  }
+  return (data ?? []) as AccountRow[];
+}
 
-// Loads all roles from the database (cached 5 min — reference data).
-const loadRoles = unstable_cache(
-  async (): Promise<RoleRow[]> => {
-    const supabase = createServerClient();
-    const { data, error } = await supabase
-      .from("roles")
-      .select("role_id, role_name");
-    if (error) {
-      console.error("Error loading roles:", error);
-      return [];
-    }
-    return (data ?? []) as RoleRow[];
-  },
-  ["employees", "roles"],
-  { revalidate: 300, tags: ["db:roles"] }
-);
+async function loadRoles(): Promise<RoleRow[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("roles")
+    .select("role_id, role_name");
+  if (error) {
+    console.error("Error loading roles:", error);
+    return [];
+  }
+  return (data ?? []) as RoleRow[];
+}
 
-// Loads all lines of business (LOBs) from the database (cached 5 min).
-const loadLobs = unstable_cache(
-  async (): Promise<{ lob_id: number; lob_name: string }[]> => {
-    const supabase = createServerClient();
-    const { data, error } = await supabase
-      .from("lobs")
-      .select("lob_id, lob_name");
-    if (error) {
-      console.error("Error loading lobs:", error);
-      return [];
-    }
-    return (data ?? []) as { lob_id: number; lob_name: string }[];
-  },
-  ["employees", "lobs"],
-  { revalidate: 300, tags: ["db:lobs"] }
-);
+async function loadLobs(): Promise<{ lob_id: number; lob_name: string }[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("lobs")
+    .select("lob_id, lob_name");
+  if (error) {
+    console.error("Error loading lobs:", error);
+    return [];
+  }
+  return (data ?? []) as { lob_id: number; lob_name: string }[];
+}
 
 // Joins a raw assignment row with its role, account, and LOB names.
 function enrichAssignment(
@@ -116,22 +102,25 @@ function enrichAssignment(
   const role = roles.find((r) => r.role_id === row.role_id);
   const account = accounts.find((a) => a.account_id === row.account_id);
   const lob = lobs.find((l) => l.lob_id === row.lob_id);
+  if (!role?.role_name || !account?.account_code || !account.account_name) {
+    throw new Error("Assignment has unresolved role or account metadata");
+  }
   return {
     role_id: row.role_id,
     account_id: row.account_id,
     lob_id: row.lob_id,
     effective_from: row.effective_from,
     effective_to: row.effective_to,
-    role_name: role?.role_name ?? "QA",
-    account_code: account?.account_code ?? "RM",
-    account_name: account?.account_name ?? "RM",
+    role_name: role.role_name,
+    account_code: account.account_code,
+    account_name: account.account_name,
     lob_name: lob?.lob_name ?? null,
   };
 }
 
 // Returns the stored avatar URL for an employee by email, if any.
 export async function getEmployeeAvatarUrl(email: string) {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data, error } = await supabase
     .from("employees")
@@ -142,42 +131,6 @@ export async function getEmployeeAvatarUrl(email: string) {
   if (error || !data) return null;
 
   return (data as { avatar_url: string | null }).avatar_url;
-}
-
-// Authenticates an employee by email (case-insensitive) and employee code.
-export async function getEmployeeByEmailAndPassword(
-  email: string,
-  employeeCode: string
-) {
-  const supabase = createServerClient();
-
-  const normalizedEmail = email.trim().toLowerCase();
-  const normalizedCode = employeeCode.trim().toLowerCase();
-
-  const { data, error } = await supabase
-    .from("employees")
-    .select(
-      "id, employee_code, employee_name, employee_email, avatar_url"
-    )
-    .ilike("employee_email", normalizedEmail)
-    .single();
-
-  if (error || !data) {
-    return null;
-  }
-
-  const storedCode = (data.employee_code ?? "").toString().trim().toLowerCase();
-  if (storedCode !== normalizedCode) {
-    return null;
-  }
-
-  return data as {
-    id: number;
-    employee_code: string;
-    employee_name: string;
-    employee_email: string;
-    avatar_url: string | null;
-  };
 }
 
 // Minimal employee record shape used by the auth layer.
@@ -191,7 +144,7 @@ export type EmployeeRecord = {
 
 // Looks up a single employee by email (case-insensitive).
 export async function getEmployeeByEmail(email: string) {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const normalized = email.trim().toLowerCase();
   const { data, error } = await supabase
@@ -209,7 +162,7 @@ export async function getEmployeeByEmail(email: string) {
 
 // Returns the first (primary) enriched assignment for an employee.
 export async function getEmployeeAssignment(employeeId: number) {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data, error } = await supabase
     .from("employee_assignments")
@@ -247,7 +200,7 @@ export async function getEmployeeAssignment(employeeId: number) {
 
 // Returns every enriched assignment for an employee.
 export async function getEmployeeAllAssignments(employeeId: number) {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data, error } = await supabase
     .from("employee_assignments")
@@ -279,7 +232,7 @@ export async function getEmployeeAllAssignments(employeeId: number) {
 
 // Returns all employees (with assignments) belonging to an account.
 export async function getEmployeesByAccount(accountCode: string) {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const accounts = await loadAccounts();
   const accountId = accounts.find(
@@ -343,7 +296,7 @@ export async function getEmployeesWithAssignments(accountCode: string) {
 
 // Returns the account id, code, and name for a given account code.
 export async function getAccountDetails(accountCode: string) {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data, error } = await supabase
     .from("accounts")
@@ -371,7 +324,7 @@ export async function getEmployeesPaginated({
   pageSize?: number;
   search?: string;
 }) {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
@@ -462,27 +415,22 @@ export async function getRoles() {
 }
 
 // Returns the LOBs belonging to a specific account, ordered by name.
-// LOBs are stable reference data per account, so the result is cached.
-export const getLobsByAccount = unstable_cache(
-  async (accountId: number) => {
-    const supabase = createServerClient();
+export async function getLobsByAccount(accountId: number) {
+  const supabase = createAdminClient();
 
-    const { data, error } = await supabase
-      .from("lobs")
-      .select("lob_id, lob_name, account_id")
-      .eq("account_id", accountId)
-      .order("lob_name", { ascending: true });
+  const { data, error } = await supabase
+    .from("lobs")
+    .select("lob_id, lob_name, account_id")
+    .eq("account_id", accountId)
+    .order("lob_name", { ascending: true });
 
-    if (error) {
-      console.error("Error fetching LOBs:", error);
-      return [] as { lob_id: number; lob_name: string; account_id: number }[];
-    }
+  if (error) {
+    console.error("Error fetching LOBs:", error);
+    return [] as { lob_id: number; lob_name: string; account_id: number }[];
+  }
 
-    return (data ?? []) as { lob_id: number; lob_name: string; account_id: number }[];
-  },
-  ["db", "lobs-account"],
-  { revalidate: 300, tags: ["db:lobs"] }
-);
+  return (data ?? []) as { lob_id: number; lob_name: string; account_id: number }[];
+}
 
 // Flattened employee shape with role, account, LOB, and status names.
 type EnrichedEmployee = {
@@ -490,6 +438,7 @@ type EnrichedEmployee = {
   employee_code: string | null;
   employee_name: string | null;
   employee_email: string | null;
+  status_id: number | null;
   role_name: string;
   account_code: string;
   lob_name: string | null;
@@ -511,7 +460,7 @@ function classifyRole(roleName: string): "agent" | "qa" | "team_lead" | "other" 
 async function getEnrichedEmployeesByAccount(
   accountCode: string
 ): Promise<EnrichedEmployee[]> {
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const accounts = await loadAccounts();
   const account = accounts.find(
@@ -568,6 +517,7 @@ async function getEnrichedEmployeesByAccount(
       employee_code: emp?.employee_code ?? null,
       employee_name: emp?.employee_name ?? null,
       employee_email: emp?.employee_email ?? null,
+      status_id: emp?.status_id ?? null,
       role_name: role?.role_name ?? "QA",
       account_code: account.account_code,
       lob_name: lob?.lob_name ?? null,
@@ -589,7 +539,7 @@ export async function getAccountAgents(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   let query = supabase
     .from("agent_assignments")
@@ -623,71 +573,60 @@ export async function getAccountAgents(
 }
 
 // Returns the sorted list of QA employee names (coaches + evaluators) for an account.
-// Cached briefly — team structure is stable outside of assignment edits.
-export const getAccountQAs = unstable_cache(
-  async (accountCode: string): Promise<string[]> => {
-    const accountId = await getAccountIdByCode(accountCode);
-    if (!accountId) return [];
+export async function getAccountQAs(accountCode: string): Promise<string[]> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
 
-    const supabase = createServerClient();
-    const { data: assignments } = await supabase
-      .from("agent_assignments")
-      .select("qa_coach_employee_id, qa_evaluator_employee_id")
-      .eq("account_id", accountId);
+  const supabase = createAdminClient();
+  const { data: assignments } = await supabase
+    .from("agent_assignments")
+    .select("qa_coach_employee_id, qa_evaluator_employee_id")
+    .eq("account_id", accountId);
 
-    if (!assignments || assignments.length === 0) return [];
+  if (!assignments || assignments.length === 0) return [];
 
-    // Collect all unique QA employee ids.
-    const qaIds = new Set<number>();
-    for (const a of assignments) {
-      if (a.qa_coach_employee_id) qaIds.add(a.qa_coach_employee_id);
-      if (a.qa_evaluator_employee_id) qaIds.add(a.qa_evaluator_employee_id);
-    }
+  const qaIds = new Set<number>();
+  for (const a of assignments) {
+    if (a.qa_coach_employee_id) qaIds.add(a.qa_coach_employee_id);
+    if (a.qa_evaluator_employee_id) qaIds.add(a.qa_evaluator_employee_id);
+  }
 
-    const { data: employees } = await supabase
-      .from("employees")
-      .select("id, employee_name")
-      .in("id", [...qaIds]);
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, employee_name")
+    .in("id", [...qaIds]);
 
-    return (employees ?? [])
-      .map((e) => e.employee_name ?? "")
-      .filter(Boolean)
-      .sort();
-  },
-  ["db", "account-qas"],
-  { revalidate: 60, tags: ["db:qas"] }
-);
+  return (employees ?? [])
+    .map((e) => e.employee_name ?? "")
+    .filter(Boolean)
+    .sort();
+}
 
 // Returns the sorted list of team lead names for an account.
-// Cached briefly — team structure is stable outside of assignment edits.
-export const getAccountTeamLeads = unstable_cache(
-  async (accountCode: string): Promise<string[]> => {
-    const accountId = await getAccountIdByCode(accountCode);
-    if (!accountId) return [];
+export async function getAccountTeamLeads(accountCode: string): Promise<string[]> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
 
-    const supabase = createServerClient();
-    const { data: assignments } = await supabase
-      .from("agent_assignments")
-      .select("team_lead_employee_id")
-      .eq("account_id", accountId);
+  const supabase = createAdminClient();
+  const { data: assignments } = await supabase
+    .from("agent_assignments")
+    .select("team_lead_employee_id")
+    .eq("account_id", accountId);
 
-    if (!assignments || assignments.length === 0) return [];
+  if (!assignments || assignments.length === 0) return [];
 
-    const tlIds = [...new Set(assignments.map((a) => a.team_lead_employee_id))];
+  const tlIds = [...new Set(assignments.map((a) => a.team_lead_employee_id))];
 
-    const { data: employees } = await supabase
-      .from("employees")
-      .select("id, employee_name")
-      .in("id", tlIds);
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, employee_name")
+    .in("id", tlIds);
 
-    return (employees ?? [])
-      .map((e) => e.employee_name ?? "")
-      .filter(Boolean)
-      .sort();
-  },
-  ["db", "account-team-leads"],
-  { revalidate: 60, tags: ["db:team-leads"] }
-);
+  return (employees ?? [])
+    .map((e) => e.employee_name ?? "")
+    .filter(Boolean)
+    .sort();
+}
 
 // Resolves the most relevant QA name: a matching employee or the first QA.
 export async function getAccountQaName(
@@ -745,7 +684,7 @@ export async function getAccountAssignmentRows(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   let query = supabase
     .from("agent_assignments")
@@ -811,6 +750,7 @@ export async function getAccountAssignmentRows(
 // Aggregated agent count and QA member list for an account.
 export type AccountTeamOverview = {
   agents: number;
+  activeAgents: number;
   inactiveAgents: number;
   qaCount: number;
   members: TeamMember[];
@@ -823,10 +763,16 @@ export async function getAccountTeamOverview(
   user?: AuthUser
 ): Promise<AccountTeamOverview> {
   const enriched = await getEnrichedEmployeesByAccount(accountCode);
+  const statuses = await getStatuses();
+  const inactiveStatusId =
+    statuses.find((status: { status_id: number; status_name: string }) => status.status_name.trim().toUpperCase() === "INACTIVE")
+      ?.status_id ?? null;
 
-  let agents = enriched.filter(
+  const allAgents = enriched.filter(
     (e) => classifyRole(e.role_name) === "agent"
   );
+
+  let agents = allAgents;
 
   const accountId = await getAccountIdByCode(accountCode);
 
@@ -844,7 +790,7 @@ export async function getAccountTeamOverview(
 
   let assignments: { agent_employee_id: number; qa_coach_employee_id: number | null }[] = [];
   if (accountId) {
-    const supabase = createServerClient();
+    const supabase = await createServerClient();
     const { data } = await supabase
       .from("agent_assignments")
       .select("agent_employee_id, qa_coach_employee_id")
@@ -868,15 +814,28 @@ export async function getAccountTeamOverview(
       .join("")
       .slice(0, 2)
       .toUpperCase();
-    return { name, initial, agents: memberAgentCount.get(m.id) ?? 0, employeeId: m.id };
+    return {
+      name,
+      initial,
+      agents: memberAgentCount.get(m.id) ?? 0,
+      employeeId: m.id,
+      employeeCode: m.employee_code ?? String(m.id),
+    };
   });
 
-  const inactiveAgents = agents.filter(
-    (e) => (e.status_name ?? "").toUpperCase() === "INACTIVE"
-  ).length;
+  const inactiveAgents = allAgents.filter((agent) => {
+    if (inactiveStatusId == null) {
+      return (agent.status_name ?? "").toUpperCase() === "INACTIVE";
+    }
+
+    const row = enriched.find((entry) => entry.id === agent.id);
+    return row?.status_id != null && row.status_id === inactiveStatusId;
+  }).length;
+  const activeAgents = allAgents.length - inactiveAgents;
 
   return {
-    agents: agents.length,
+    agents: allAgents.length,
+    activeAgents,
     inactiveAgents,
     qaCount: qaMembers.length,
     members,
@@ -888,6 +847,7 @@ export type AccountSummary = {
   account: AccountLabel;
   accountKey: AccountKey;
   agents: number;
+  activeAgents: number;
   inactiveAgents: number;
   qaCount: number;
 };
@@ -897,6 +857,7 @@ export type DashboardOverview = {
   isManager: boolean;
   accounts: AccountSummary[];
   totalAgents: number;
+  totalActiveAgents: number;
   totalInactiveAgents: number;
   totalQAs: number;
   charts: DashboardChartAnalytics;
@@ -907,10 +868,12 @@ export type DashboardOverview = {
  * Managers (and admins) see all accounts; everyone else sees only the
  * accounts they are assigned to. Counts are pulled live from the employee
  * assignment data so the dashboard reflects the real team structure.
- * Cached for 2 minutes to avoid redundant Supabase queries on navigation.
  */
-export const getDashboardOverview = unstable_cache(
-  async (user: AuthUser): Promise<DashboardOverview> => {
+export async function getDashboardOverview(
+  user: AuthUser,
+  timeframe: DashboardTimeframe = "Daily",
+  anchorDate = new Date().toISOString().slice(0, 10)
+): Promise<DashboardOverview> {
     const isManager =
       DASHBOARD_MANAGER_ROLES.includes(user.role) || user.role === "admin";
 
@@ -925,12 +888,14 @@ export const getDashboardOverview = unstable_cache(
 
         let agentCount = overview.agents;
         if (!isManager && accountId) {
-          const supabase = createServerClient();
-          const { data: coachAssignments } = await supabase
+          const supabase = await createServerClient();
+          const { data: coachAssignments, error: coachAssignmentsError } = await supabase
             .from("agent_assignments")
             .select("agent_employee_id")
             .eq("account_id", accountId)
             .eq("qa_coach_employee_id", user.employee_id);
+
+          if (coachAssignmentsError) throw coachAssignmentsError;
 
           const uniqueAgentIds = new Set(
             (coachAssignments ?? [])
@@ -943,7 +908,8 @@ export const getDashboardOverview = unstable_cache(
         return {
           account: code.toUpperCase() as AccountLabel,
           accountKey: code.toLowerCase() as AccountKey,
-          agents: agentCount,
+          agents: overview.agents,
+          activeAgents: overview.activeAgents,
           inactiveAgents: overview.inactiveAgents,
           qaCount: overview.qaCount,
         };
@@ -951,16 +917,27 @@ export const getDashboardOverview = unstable_cache(
     );
 
     const totalAgents = accounts.reduce((sum, a) => sum + a.agents, 0);
+    const totalActiveAgents = accounts.reduce((sum, a) => sum + a.activeAgents, 0);
     const totalInactiveAgents = accounts.reduce((sum, a) => sum + a.inactiveAgents, 0);
     const totalQAs = accounts.reduce((sum, a) => sum + a.qaCount, 0);
 
     // Fetch real chart analytics across all visible accounts. Non-manager
     // users (QAs) are scoped to the agents under them; supervisors/admins
     // see all data.
-    const charts = await getDashboardChartAnalytics(accountCodes, user);
+    const charts = await getDashboardChartAnalytics(
+      accountCodes,
+      user,
+      timeframe,
+      anchorDate
+    );
 
-    return { isManager, accounts, totalAgents, totalInactiveAgents, totalQAs, charts };
-  },
-  ["dashboard", "overview"],
-  { revalidate: 120, tags: ["dashboard"] }
-);
+    return {
+      isManager,
+      accounts,
+      totalAgents,
+      totalActiveAgents,
+      totalInactiveAgents,
+      totalQAs,
+      charts,
+    };
+}

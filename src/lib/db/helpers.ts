@@ -38,7 +38,7 @@ export async function getScopedAgentIds(
     return { agentIds: null };
   }
 
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   const { data: scopedAssignments } = await supabase
     .from("agent_assignments")
     .select("agent_employee_id")
@@ -71,7 +71,7 @@ export async function getEmployeeNameMap(
   const idArray = [...new Set(ids)].filter((id): id is number => id != null);
   if (idArray.length === 0) return new Map();
 
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
   const { data: employees } = await supabase
     .from("employees")
     .select("id, employee_name")

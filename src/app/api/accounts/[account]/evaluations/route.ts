@@ -1,79 +1,99 @@
 // API route: persists a manually-created evaluation from the roster calendar
-// "Evaluate" form. Insert the evaluations row with checkbox results JSONB.
+// "Evaluate" form with full authorization checks.
 
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth";
+import { NextRequest } from "next/server";
+import { z } from "zod";
+import { requireUser } from "@/server/auth/session";
 import { createEvaluation } from "@/lib/db/quality";
+import { jsonError, jsonOk } from "@/server/security/http";
+import { enforceRateLimit } from "@/server/security/rate-limit";
+import { assertTrustedOrigin } from "@/server/security/origin";
+import { auditLog } from "@/server/audit";
+import { ValidationError, AuthorizationError } from "@/server/security/errors";
+import { accountParamSchema } from "@/lib/validation";
 
-type Body = {
-  agentName: string;
-  guideline: string;
-  evaluationDate: string;
-  qaScore: number;
-  ticketBill?: string;
-  notes?: string;
-  checked: { parameterId: number; checked: boolean }[];
-};
+const createEvaluationBodySchema = z.object({
+  agentName: z.string().trim().min(1, "Agent name is required").max(200),
+  guideline: z.string().trim().min(1, "Guideline is required").max(200),
+  evaluationDate: z.string().trim().min(1, "Evaluation date is required").max(50),
+  qaScore: z.number().min(0).max(100),
+  ticketBill: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(5000).optional(),
+  checked: z
+    .array(
+      z.object({
+        parameterId: z.number().int().positive(),
+        checked: z.boolean(),
+      })
+    )
+    .min(1, "Checklist is required"),
+});
+
+const EVALUATION_CREATOR_ROLES = ["admin", "account_manager", "quality_coordinator", "qa_supervisor", "qa"];
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ account: string }> }
 ) {
-  const { account } = await params;
-
-  const user = await getAuthUser();
-  if (!user) {
-    return NextResponse.json(
-      { success: false, error: "Not authenticated" },
-      { status: 401 }
-    );
-  }
-
-  let body: Body;
   try {
-    body = (await request.json()) as Body;
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Invalid JSON body" },
-      { status: 400 }
-    );
-  }
+    await assertTrustedOrigin();
+    await enforceRateLimit("evaluations-create", 30, 60_000);
 
-  if (
-    !body.agentName ||
-    !body.guideline ||
-    !body.evaluationDate ||
-    typeof body.qaScore !== "number" ||
-    !Array.isArray(body.checked)
-  ) {
-    return NextResponse.json(
-      { success: false, error: "Missing required fields" },
-      { status: 400 }
-    );
-  }
-
-  try {
-    const evaluationId = await createEvaluation({
-      accountCode: account,
-      agentName: body.agentName,
-      guideline: body.guideline,
-      evaluationDate: body.evaluationDate,
-      qaScore: body.qaScore,
-      qaEvaluatorEmployeeId: user.employee_id,
-      ticketBill: body.ticketBill,
-      notes: body.notes,
-      checked: body.checked,
-    });
-    if (evaluationId == null) {
-      return NextResponse.json(
-        { success: false, error: "Could not create evaluation" },
-        { status: 500 }
-      );
+    const { account } = await params;
+    const accountParsed = accountParamSchema.safeParse({ account });
+    if (!accountParsed.success) {
+      throw new ValidationError("Invalid account code");
     }
-    return NextResponse.json({ success: true, evaluationId });
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Failed to save evaluation";
-    return NextResponse.json({ success: false, error: message }, { status: 400 });
+
+    const user = await requireUser();
+    const normalized = account.trim().toUpperCase();
+    const assignment = user.accounts.find((entry) => entry.account === normalized);
+    const isManager = ["admin", "account_manager", "quality_coordinator", "qa_supervisor"].includes(user.role);
+
+    if (!assignment && !isManager) {
+      throw new AuthorizationError("You do not have access to this account");
+    }
+
+    if (!EVALUATION_CREATOR_ROLES.includes(user.role)) {
+      throw new AuthorizationError("You do not have permission to create evaluations");
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      throw new ValidationError("Invalid JSON body");
+    }
+
+    const parsed = createEvaluationBodySchema.safeParse(body);
+    if (!parsed.success) {
+      throw new ValidationError("Validation failed: " + parsed.error.issues[0]?.message);
+    }
+
+    const evaluationId = await createEvaluation({
+      accountCode: normalized,
+      agentName: parsed.data.agentName,
+      guideline: parsed.data.guideline,
+      evaluationDate: parsed.data.evaluationDate,
+      qaScore: parsed.data.qaScore,
+      qaEvaluatorEmployeeId: user.employee_id,
+      ticketBill: parsed.data.ticketBill,
+      notes: parsed.data.notes,
+      checked: parsed.data.checked,
+    });
+
+    if (evaluationId == null) {
+      throw new ValidationError("Could not create evaluation");
+    }
+
+    auditLog("evaluation.created", {
+      employee_id: user.employee_id,
+      account: normalized,
+      evaluation_id: evaluationId,
+    });
+
+    return jsonOk({ success: true, evaluationId });
+  } catch (error) {
+    return jsonError(error);
   }
 }

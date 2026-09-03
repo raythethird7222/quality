@@ -46,7 +46,7 @@ export async function getAccountPeople(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data: assignments } = await supabase
     .from("agent_assignments")
@@ -81,7 +81,7 @@ export async function getAccountLobs(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data } = await supabase
     .from("lobs")
@@ -102,7 +102,7 @@ export async function getAccountCoaches(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data: roles } = await supabase
     .from("roles")
@@ -160,7 +160,7 @@ export async function getAccountEvaluators(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data: roles } = await supabase
     .from("roles")
@@ -212,7 +212,7 @@ export async function getAccountTeamLeads(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   const { data: roles } = await supabase
     .from("roles")
@@ -270,7 +270,7 @@ export async function getAccountAssignmentRowsWithIds(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   let query = supabase
     .from("agent_assignments")
@@ -332,7 +332,7 @@ export async function persistAgentAssignments(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) throw new Error("Account not found");
 
-  const supabase = createServerClient();
+  const supabase = await createServerClient();
 
   // Membership sets used to validate references against this account only.
   // Any employee assigned to the account (regardless of role/assignment) is a

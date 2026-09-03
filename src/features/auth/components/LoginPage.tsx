@@ -1,159 +1,108 @@
 "use client";
 
-// Modern QA login page inspired by the provided CTNP-style corporate direction.
 import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
 import { useAuth } from "@/features/auth/context/AuthContext";
 
-// Words cycled through by the typewriter effect in the headline.
 const TYPEWRITER_WORDS = ["Quality", "Precision", "Insights", "Excellence"];
 
-// Login page component keeps the existing authentication flow while replacing the visual presentation.
 export default function LoginPage() {
-  // Reuse the application's existing credential authentication implementation.
   const { login } = useAuth();
-
-  // Store the user's login identifier.
   const [username, setUsername] = useState("");
-  // Store the user's password.
   const [password, setPassword] = useState("");
-  // Toggle password visibility.
   const [showPassword, setShowPassword] = useState(false);
-  // Show authentication or callback errors inline.
-  const [error, setError] = useState(() =>
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("error") ?? ""
-      : ""
-  );
-  // Disable credential controls while authentication is running.
+  // URL data is not available during the server render. Read it after mount so
+  // server and client render the same initial tree.
+  const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  // Disable the Microsoft/Google-style OAuth control while redirecting.
   const [oauthLoading, setOauthLoading] = useState(false);
-  // Persist the session when the user asks to be remembered.
-  const [rememberMe, setRememberMe] = useState(false);
-
-  // Typewriter effect words for the highlighted brand term.
   const [typewriterText, setTypewriterText] = useState("");
   const [typewriterIndex, setTypewriterIndex] = useState(0);
   const [typewriterDeleting, setTypewriterDeleting] = useState(false);
 
-  // Animates the highlighted word with a typewriter (type/delete/shift) effect.
   useEffect(() => {
     const current = TYPEWRITER_WORDS[typewriterIndex % TYPEWRITER_WORDS.length];
     let timeout: ReturnType<typeof setTimeout>;
 
     if (!typewriterDeleting) {
-      // Keep typing the current word until it is fully shown.
       if (typewriterText !== current) {
         timeout = setTimeout(
           () => setTypewriterText(current.slice(0, typewriterText.length + 1)),
           90
         );
       } else {
-        // Pause briefly, then switch to deleting.
         timeout = setTimeout(() => setTypewriterDeleting(true), 1700);
       }
+    } else if (typewriterText.length > 0) {
+      timeout = setTimeout(
+        () => setTypewriterText(current.slice(0, typewriterText.length - 1)),
+        55
+      );
     } else {
-      // Delete the current word entirely, then shift to the next one.
-      if (typewriterText.length > 0) {
-        timeout = setTimeout(
-          () => setTypewriterText(current.slice(0, typewriterText.length - 1)),
-          55
-        );
-      } else {
-        timeout = setTimeout(() => {
-          setTypewriterDeleting(false);
-          setTypewriterIndex((index) => index + 1);
-        }, 300);
-        return () => clearTimeout(timeout);
-      }
+      timeout = setTimeout(() => {
+        setTypewriterDeleting(false);
+        setTypewriterIndex((index) => index + 1);
+      }, 300);
     }
 
     return () => clearTimeout(timeout);
-  }, [typewriterText, typewriterDeleting, typewriterIndex]);
+  }, [typewriterDeleting, typewriterIndex, typewriterText]);
 
-  // Re-check the session when a browser restores the login page from its back/forward cache.
+  useEffect(() => {
+    const errorMessage = new URLSearchParams(window.location.search).get("error");
+    if (!errorMessage) return;
+
+    setError(errorMessage);
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete("error");
+    window.history.replaceState({}, "", cleanUrl.toString());
+  }, []);
+
   useEffect(() => {
     function handlePageShow(event: PageTransitionEvent) {
-      // Only perform the session check for pages restored from the browser cache.
       if (!event.persisted) return;
 
-      // Ask the existing auth endpoint whether a session is already active.
-      fetch("/api/auth/me")
+      fetch("/api/auth/me", { cache: "no-store" })
         .then((response) => (response.ok ? response.json() : null))
         .then((data) => {
-          // Authenticated users should never remain on the login screen.
           if (data?.user) {
             window.location.replace("/dashboard");
-            return;
+          } else {
+            setSubmitting(false);
           }
-
-          // Restore the form to an interactive state when no session exists.
-          setSubmitting(false);
-          setError("");
         })
         .catch(() => setSubmitting(false));
     }
 
-    // Register the browser cache restore listener.
     window.addEventListener("pageshow", handlePageShow);
-
-    // Remove the listener when the component unmounts.
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
-  // Remove callback error query parameters after their value has been copied into state.
-  useEffect(() => {
-    // Only manipulate browser history when a callback error is present.
-    if (
-      typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).get("error")
-    ) {
-      // Build a clean URL without exposing the authentication error in the address bar.
-      const cleanUrl = new URL(window.location.href);
-      cleanUrl.searchParams.delete("error");
-      window.history.replaceState({}, "", cleanUrl.toString());
-    }
-  }, []);
-
-  // Submit credentials through the existing application authentication context.
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    // Prevent a normal browser form submission.
     event.preventDefault();
-
-    // Ignore duplicate submissions while authentication is running.
     if (submitting) return;
 
-    // Enter the loading state and clear any previous error.
     setSubmitting(true);
     setError("");
 
-    // Keep the application's existing authentication behavior unchanged.
-    const result = await login(username, password, rememberMe);
-
-    // Redirect authenticated users to the existing dashboard.
+    const result = await login(username, password);
     if (result.success) {
       window.location.href = "/dashboard";
       return;
     }
 
-    // Return the form to an interactive state when authentication fails.
     setSubmitting(false);
     setError(result.error ?? "Unable to sign in. Please check your credentials.");
   }
 
-  // Start the existing Google OAuth flow without changing the application's auth provider configuration.
   async function handleOAuthLogin() {
-    // Clear any previous error before starting the redirect.
     setError("");
     setOauthLoading(true);
 
     try {
-      // Load the browser Supabase client only when the OAuth action is used.
       const { createBrowserClient } = await import("@/lib/supabase/client");
       const supabase = createBrowserClient();
 
-      // Start the provider redirect using the application's existing callback route.
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -161,13 +110,11 @@ export default function LoginPage() {
         },
       });
 
-      // Surface provider errors without breaking the login page.
       if (oauthError) {
         setOauthLoading(false);
         setError(oauthError.message);
       }
     } catch {
-      // Surface unexpected OAuth initialization errors safely.
       setOauthLoading(false);
       setError("Unable to start single sign-on. Please try again.");
     }
@@ -175,9 +122,7 @@ export default function LoginPage() {
 
   return (
     <main className="flex h-screen w-full flex-col overflow-hidden bg-[#F8F8F6] text-[#17283B] lg:grid lg:grid-cols-[58%_42%]">
-      {/* Brand panel creates the dark, premium corporate visual from the reference design. */}
       <section className="relative hidden h-full overflow-hidden bg-[#132B43] text-white lg:flex lg:flex-col lg:justify-between">
-        {/* Hero team photo blended into the dark panel. */}
         <div className="absolute inset-y-0 right-0 flex items-center">
           <Image
             src="https://zhdmsmwrskxowvytedgh.supabase.co/storage/v1/object/public/Images/Herro-Photo-scaled.png"
@@ -189,35 +134,17 @@ export default function LoginPage() {
             sizes="58vw"
           />
         </div>
-        {/* Gradient wash keeps the image blended and text legible. */}
         <div className="absolute inset-0 bg-gradient-to-b from-[#132B43]/70 via-[#132B43]/35 to-[#132B43]/85" />
-
-        {/* Decorative design at the bottom-left corner of the panel. */}
         <div className="absolute right-0 bottom-0 hidden lg:block">
           <div className="absolute -bottom-40 -left-44 h-[520px] w-[520px] rounded-full border-[80px] border-[#2F6798]/40" />
           <div className="absolute -bottom-28 -left-32 h-[380px] w-[380px] rounded-full border-[55px] border-[#C8A54B]/30" />
         </div>
 
-        {/* Cebu Tele-Net Philippines logo at the top-left of the panel.
-        <div className="absolute left-12 top-12 z-10 xl:left-16 xl:top-14">
-          <Image
-            src="https://zhdmsmwrskxowvytedgh.supabase.co/storage/v1/object/public/Images/cebu-tele-net-Philippines-300x138.png"
-            alt="Cebu Tele-Net Philippines"
-            width={300}
-            height={138}
-            priority
-            className="h-auto w-[150px] xl:w-[170px]"
-          />
-        </div> */}
-
-        {/* Brand content stays above the decorative layers. */}
         <div className="relative z-10 flex flex-1 flex-col justify-center p-12 xl:p-16">
-          {/* Small corporate eyebrow mirrors the reference's restrained typography. */}
           <p className="mb-16 text-[11px] font-medium uppercase tracking-[0.42em] text-white/65">
             Insights &nbsp;|&nbsp; Intelligence &nbsp;|&nbsp; A Better Tomorrow
           </p>
 
-          {/* Main quality statement establishes the product's purpose immediately. */}
           <div className="max-w-2xl">
             <p className="mb-4 text-sm font-semibold uppercase tracking-[0.35em] text-[#C8A54B]">
               AI-powered quality
@@ -239,9 +166,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Brand footer highlights the platform's operational values. */}
         <div className="relative z-10 px-12 pb-10 xl:px-16 xl:pb-12">
-          {/* Value row reinforces people, operational excellence, and improvement. */}
           <div className="mb-12 grid max-w-3xl grid-cols-3 gap-8">
             <div className="border-l border-white/20 pl-4">
               <p className="mb-1 text-[10px] uppercase tracking-[0.22em] text-white/55">Insights</p>
@@ -257,7 +182,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Product statement anchors the brand panel at the bottom. */}
           <div className="flex items-center justify-between border-t border-white/10 pt-5 text-[10px] uppercase tracking-[0.3em] text-white/45">
             <span>QA Tool</span>
             <span>CTNP | Philippines</span>
@@ -265,17 +189,12 @@ export default function LoginPage() {
         </div>
       </section>
 
-      {/* Login panel remains bright, spacious, and focused on authentication. */}
       <section className="flex h-full w-full overflow-y-auto px-6 py-10 sm:px-10 lg:overflow-hidden">
-
-        {/* Login content fills the panel and keeps comfortable reading width. */}
         <div className="relative z-10 flex h-full w-full flex-col justify-center">
-          {/* CTNP logo gives the form its brand identity. */}
           <div className="mb-2 flex justify-center">
             <Image src="/logo.png" alt="QA Tool logo" width={492} height={188} priority className="h-auto w-[220px]" />
           </div>
 
-          {/* Login heading introduces the action clearly. */}
           <div className="mb-8 text-center">
             <h2 className="text-4xl font-semibold tracking-[-0.035em] text-[#17283B]">
               Welcome back
@@ -285,7 +204,6 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Authentication errors are presented above the fields without changing the existing auth behavior. */}
           {error && (
             <div
               role="alert"
@@ -295,15 +213,12 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Credential form uses the existing login handler. */}
           <form className="space-y-5" onSubmit={handleLogin}>
-            {/* Employee/email field follows the clean reference input style. */}
             <div>
               <label htmlFor="qa-username" className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#536172]">
                 Email
               </label>
               <div className="relative">
-                {/* User icon provides a compact visual affordance. */}
                 <svg className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8190A0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
                   <circle cx="12" cy="8" r="3.5" />
                   <path d="M5 20c.6-3.4 2.9-5.5 7-5.5s6.4 2.1 7 5.5" />
@@ -311,10 +226,10 @@ export default function LoginPage() {
                 <input
                   id="qa-username"
                   name="username"
-                  type="text"
+                  type="email"
                   autoComplete="username"
                   value={username}
-                  disabled={submitting}
+                  disabled={submitting || oauthLoading}
                   placeholder="Enter your email"
                   onChange={(event) => {
                     setUsername(event.target.value);
@@ -325,13 +240,11 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Password field includes a keyboard-accessible visibility control. */}
             <div>
               <label htmlFor="qa-password" className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#536172]">
                 Password
               </label>
               <div className="relative">
-                {/* Lock icon identifies the sensitive credential field. */}
                 <svg className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8190A0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
                   <rect x="5" y="10" width="14" height="10" rx="2" />
                   <path d="M8 10V7a4 4 0 018 0v3" />
@@ -342,7 +255,7 @@ export default function LoginPage() {
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   value={password}
-                  disabled={submitting}
+                  disabled={submitting || oauthLoading}
                   placeholder="Enter your password"
                   onChange={(event) => {
                     setPassword(event.target.value);
@@ -350,11 +263,10 @@ export default function LoginPage() {
                   }}
                   className="h-14 w-full rounded-xl border border-[#D7DDE3] bg-white pl-12 pr-12 text-[15px] text-[#17283B] outline-none transition placeholder:text-[#9AA4AF] focus:border-[#2F6798] focus:ring-4 focus:ring-[#2F6798]/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
-                {/* Password visibility button avoids changing the existing password state. */}
                 <button
                   type="button"
                   aria-label={showPassword ? "Hide password" : "Show password"}
-                  disabled={submitting}
+                  disabled={submitting || oauthLoading}
                   onClick={() => setShowPassword((visible) => !visible)}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-[#8190A0] transition hover:text-[#2F6798] disabled:opacity-50"
                 >
@@ -375,52 +287,37 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Secondary controls provide familiar enterprise login affordances. */}
-            <div className="flex items-center justify-between gap-4 pt-1 text-sm">
-              <label className="flex cursor-pointer items-center gap-2 text-[#536172]">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(event) => setRememberMe(event.target.checked)}
-                  className="h-4 w-4 rounded border-[#C9D0D8] accent-[#2F6798]"
-                />
-                <span>Remember me</span>
-              </label>
+            <div className="flex items-center justify-end gap-4 pt-1 text-sm">
               <button
                 type="button"
-                onClick={() => setError("Please contact your administrator to reset your password.")}
+                onClick={() => setError("Please contact your administrator if you need your password reset.")}
                 className="font-medium text-[#244F78] transition hover:text-[#C8A54B]"
               >
-                Forgot password?
+                Need help?
               </button>
             </div>
 
-            {/* Primary action uses the reference's full-width premium button. */}
             <button
               type="submit"
-              disabled={submitting || !username.trim() || !password}
+              disabled={submitting || oauthLoading || !username.trim() || !password.trim()}
               className="group flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-[#244F78] px-5 text-[15px] font-semibold text-white shadow-[0_10px_25px_rgba(36,79,120,0.18)] transition hover:bg-[#173B5D] focus:outline-none focus:ring-4 focus:ring-[#2F6798]/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span>{submitting ? "Signing in…" : "Sign In"}</span>
-              {!submitting && <span className="text-lg transition-transform group-hover:translate-x-1">→</span>}
             </button>
           </form>
 
-          {/* Provider separator keeps the OAuth option visually secondary. */}
           <div className="my-7 flex items-center gap-4 text-xs uppercase tracking-[0.18em] text-[#9AA4AF]">
             <span className="h-px flex-1 bg-[#E0E4E8]" />
             <span>or</span>
             <span className="h-px flex-1 bg-[#E0E4E8]" />
           </div>
 
-          {/* Existing Google OAuth is presented as the enterprise SSO action. */}
           <button
             type="button"
             disabled={submitting || oauthLoading}
             onClick={handleOAuthLogin}
             className="flex h-14 w-full items-center justify-center gap-3 rounded-xl border border-[#D7DDE3] bg-white px-5 text-[15px] font-medium text-[#26384A] transition hover:border-[#B9C3CD] hover:bg-[#FBFCFD] focus:outline-none focus:ring-4 focus:ring-[#2F6798]/10 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {/* Official Google "G" logo (four-color mark) for the SSO control. */}
             <svg className="h-5 w-5" viewBox="0 0 48 48" aria-hidden="true">
               <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
               <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
@@ -430,7 +327,6 @@ export default function LoginPage() {
             <span>{oauthLoading ? "Connecting…" : "Sign in with Google"}</span>
           </button>
 
-          {/* Footer identifies this as an internal business application. */}
           <p className="mt-12 text-center text-[9px] uppercase tracking-[0.34em] text-[#A2ABB5]">
             QA Tool &nbsp;|&nbsp; Internal Use Only
           </p>

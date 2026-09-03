@@ -43,6 +43,7 @@ export interface Database {
           vici_link?: string | null;
           avatar_url?: string | null;
         };
+        Relationships: [];
       };
       accounts: {
         Row: {
@@ -60,6 +61,7 @@ export interface Database {
           account_code?: string;
           account_name?: string;
         };
+        Relationships: [];
       };
       roles: {
         Row: {
@@ -74,6 +76,7 @@ export interface Database {
           role_id?: number;
           role_name?: string;
         };
+        Relationships: [];
       };
       lobs: {
         Row: {
@@ -91,6 +94,7 @@ export interface Database {
           lob_name?: string;
           account_id?: number;
         };
+        Relationships: [];
       };
       statuses: {
         Row: {
@@ -105,6 +109,7 @@ export interface Database {
           status_id?: number;
           status_name?: string;
         };
+        Relationships: [];
       };
       employee_assignments: {
         Row: {
@@ -134,6 +139,7 @@ export interface Database {
           effective_from?: string | null;
           effective_to?: string | null;
         };
+        Relationships: [];
       };
       rm_covers: {
         Row: {
@@ -154,6 +160,7 @@ export interface Database {
           cover_name?: string;
           lob_id?: number | null;
         };
+        Relationships: [];
       };
       evaluations: {
         Row: {
@@ -225,6 +232,7 @@ export interface Database {
           checkbox_results?: Json | null;
           created_at?: string;
         };
+        Relationships: [];
       };
       evaluation_parameters: {
         Row: {
@@ -275,6 +283,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       rm_mqpm_performance: {
         Row: {
@@ -331,6 +340,7 @@ export interface Database {
           previous_score_difference?: number | null;
           opportunities?: string | null;
         };
+        Relationships: [];
       };
       assignment_reporting: {
         Row: {
@@ -363,6 +373,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       agent_assignments: {
         Row: {
@@ -404,6 +415,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
     };
     Views: Record<string, never>;

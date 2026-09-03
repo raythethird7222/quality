@@ -150,7 +150,7 @@ const getEvaluationsTool: AgentTool = {
       return { tool: "get_evaluations", success: false, error: "Account not found." };
     }
 
-    const supabase = createServerClient();
+    const supabase = await createServerClient();
 
     // Build the query step by step, casting to any to avoid Supabase's
     // complex filter builder types that are not needed for our use case.
@@ -264,7 +264,7 @@ const getEvaluationSummaryTool: AgentTool = {
       return { tool: "get_evaluation_summary", success: false, error: "Account not found." };
     }
 
-    const supabase = createServerClient();
+    const supabase = await createServerClient();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let query: any = supabase
@@ -423,7 +423,10 @@ const getLobsTool: AgentTool = {
       success: true,
       data: {
         account: accountCode.toUpperCase(),
-        lobs: lobs.map((l) => ({ id: l.lob_id, name: l.lob_name })),
+        lobs: lobs.map((l: { lob_id: number; lob_name: string }) => ({
+          id: l.lob_id,
+          name: l.lob_name,
+        })),
       },
     };
   },
@@ -501,7 +504,7 @@ const getAgentPerformanceTool: AgentTool = {
       return { tool: "get_agent_performance", success: false, error: "Account not found." };
     }
 
-    const supabase = createServerClient();
+    const supabase = await createServerClient();
 
     // Resolve agent by name.
     const { data: agent } = await supabase
@@ -550,8 +553,9 @@ const getAgentPerformanceTool: AgentTool = {
       return { tool: "get_agent_performance", success: false, error: "Failed to fetch performance data." };
     }
 
-    const scored = (evaluations ?? []).filter((e: { qa_score: number | null }) => e.qa_score != null);
-    const scores = scored.map((e: { qa_score: number }) => e.qa_score);
+    const scores = (evaluations ?? [])
+      .map((e) => e.qa_score)
+      .filter((s): s is number => s != null);
     const avgScore = scores.length > 0
       ? Number((scores.reduce((a: number, b: number) => a + b, 0) / scores.length).toFixed(1))
       : null;
@@ -605,7 +609,7 @@ const getQaMetricsTool: AgentTool = {
       return { tool: "get_qa_metrics", success: false, error: "Account not found." };
     }
 
-    const supabase = createServerClient();
+    const supabase = await createServerClient();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let query: any = supabase
