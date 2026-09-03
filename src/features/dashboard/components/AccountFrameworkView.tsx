@@ -94,9 +94,9 @@ export default function AccountFrameworkView({
   const fetchSeq = useRef(0);
 
   // Live data state — updated when date changes. Always scoped to the selected
-  // date (populated on mount and whenever the day changes), so the table shows
-  // only that specific day's records rather than all-time history.
-  const [livePeople, setLivePeople] = useState<AgentPerformance[]>([]);
+  // date (populated on mount and whenever the day changes). The full roster is
+  // retained when a selected day has no evaluations yet.
+  const [livePeople, setLivePeople] = useState<AgentPerformance[]>(initialPeople);
   const [liveTotal, setLiveTotal] = useState<number | undefined>(undefined);
   const [liveScore, setLiveScore] = useState<string | undefined>(undefined);
   const [liveFailed, setLiveFailed] = useState<number | undefined>(undefined);
@@ -160,7 +160,12 @@ export default function AccountFrameworkView({
         if (seq !== fetchSeq.current) return;
         // Reflect the fetched day, including an empty result so a day with no
         // evaluations correctly shows "No data".
-        setLivePeople(data.agentPerformance ?? []);
+        const performanceByName = new Map<string, AgentPerformance>(
+          (data.agentPerformance ?? []).map((person: AgentPerformance) => [person.name, person])
+        );
+        setLivePeople(
+          initialPeople.map((person) => performanceByName.get(person.name) ?? person)
+        );
         if (data.totalEvaluations != null) setLiveTotal(data.totalEvaluations);
         if (data.avgScore != null) setLiveScore(`${data.avgScore.toFixed(1)}%`);
         else setLiveScore("--");
@@ -174,7 +179,7 @@ export default function AccountFrameworkView({
         }
       }
     },
-    [unit]
+    [initialPeople, unit]
   );
 
   // Fetch evaluations for the selected month and open the modal.

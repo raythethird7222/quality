@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  ContactRound,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -64,6 +65,12 @@ const TOP_NAV: NavItem[] = [
     href: "/accounts/manage",
     label: "Manage Accounts",
     icon: Building2,
+    roles: ["admin", "quality_coordinator", "account_manager", "qa_supervisor"],
+  },
+  {
+    href: "/employees",
+    label: "Employees Management",
+    icon: ContactRound,
     roles: ["admin", "quality_coordinator", "account_manager", "qa_supervisor"],
   },
   {

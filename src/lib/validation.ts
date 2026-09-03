@@ -47,15 +47,22 @@ export const evaluationParamsSchema = z.object({
 
 // Validates the body for creating a new employee.
 export const createEmployeeSchema = z.object({
-  employee_code: z.string().min(1, "Employee code is required"),
-  employee_name: z.string().min(1, "Employee name is required"),
-  employee_email: z.string().email("Valid email is required"),
+  employee_code: z.string().trim().min(1, "Employee code is required").max(50),
+  employee_name: z.string().trim().min(1, "Employee name is required").max(200),
+  employee_email: z.string().trim().email("Valid email is required").max(254),
+  status_id: z.number().int().positive().optional(),
+  hire_date: z.string().date().nullable().optional(),
+  vici_link: z.string().trim().url("Valid VICI link is required").max(500).nullable().optional(),
 });
 
 // Validates the (partial) body for updating an employee's profile fields.
 export const updateEmployeeSchema = z.object({
-  employee_name: z.string().min(1).optional(),
-  employee_email: z.string().email().optional(),
+  employee_code: z.string().trim().min(1).max(50).optional(),
+  employee_name: z.string().trim().min(1).max(200).optional(),
+  employee_email: z.string().trim().email().max(254).optional(),
+  status_id: z.number().int().positive().optional(),
+  hire_date: z.string().date().nullable().optional(),
+  vici_link: z.string().trim().url("Valid VICI link is required").max(500).nullable().optional(),
 });
 
 // Validates the body for creating an employee account assignment.

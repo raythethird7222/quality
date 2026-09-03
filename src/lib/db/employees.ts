@@ -402,6 +402,65 @@ export async function getEmployeesPaginated({
   };
 }
 
+// Employee fields used by the manager-facing employee directory.
+export type EmployeeManagementRow = {
+  id: number;
+  employee_code: string | null;
+  employee_name: string | null;
+  employee_email: string | null;
+  status_id: number | null;
+  status_name: string | null;
+  hire_date: string | null;
+  vici_link: string | null;
+  assignments: {
+    account_code: string;
+    account_name: string;
+    role_name: string;
+    lob_name: string | null;
+  }[];
+};
+
+// Loads the complete employee directory for the protected management page.
+export async function getEmployeeManagementRows(): Promise<EmployeeManagementRow[]> {
+  const supabase = createAdminClient();
+  const [{ data: employees, error }, { data: statuses }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("id, employee_code, employee_name, employee_email, status_id, hire_date, vici_link")
+      .order("employee_name", { ascending: true }),
+    supabase.from("statuses").select("status_id, status_name"),
+  ]);
+
+  if (error) {
+    console.error("Error fetching employee directory:", error);
+    return [];
+  }
+
+  const [assignments, roles, accounts, lobs] = await Promise.all([
+    supabase
+      .from("employee_assignments")
+      .select("employee_id, role_id, account_id, lob_id")
+      .then(({ data }) => data ?? []),
+    loadRoles(),
+    loadAccounts(),
+    loadLobs(),
+  ]);
+  const statusMap = new Map((statuses ?? []).map((s) => [s.status_id, s.status_name]));
+
+  return (employees ?? []).map((employee) => ({
+    ...employee,
+    status_name: employee.status_id == null ? null : statusMap.get(employee.status_id) ?? null,
+    assignments: assignments
+      .filter((assignment) => assignment.employee_id === employee.id)
+      .map((assignment) => ({
+        account_code: accounts.find((account) => account.account_id === assignment.account_id)?.account_code ?? "—",
+        account_name: accounts.find((account) => account.account_id === assignment.account_id)?.account_name ?? "",
+        role_name: roles.find((role) => role.role_id === assignment.role_id)?.role_name ?? "—",
+        lob_name: lobs.find((lob) => lob.lob_id === assignment.lob_id)?.lob_name ?? null,
+      })),
+  })) as EmployeeManagementRow[];
+}
+
 // Returns all accounts ordered by code (cached 5 min via loadAccounts).
 export async function getAccounts() {
   const accounts = await loadAccounts();
@@ -460,7 +519,9 @@ function classifyRole(roleName: string): "agent" | "qa" | "team_lead" | "other" 
 async function getEnrichedEmployeesByAccount(
   accountCode: string
 ): Promise<EnrichedEmployee[]> {
-  const supabase = await createServerClient();
+  // Dashboard totals must include inactive employees; use the privileged
+  // server client so RLS cannot hide employee/status rows from the rollup.
+  const supabase = createAdminClient();
 
   const accounts = await loadAccounts();
   const account = accounts.find(
@@ -539,7 +600,7 @@ export async function getAccountAgents(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
   let query = supabase
     .from("agent_assignments")
@@ -684,7 +745,7 @@ export async function getAccountAssignmentRows(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
   let query = supabase
     .from("agent_assignments")
@@ -768,9 +829,11 @@ export async function getAccountTeamOverview(
     statuses.find((status: { status_id: number; status_name: string }) => status.status_name.trim().toUpperCase() === "INACTIVE")
       ?.status_id ?? null;
 
-  const allAgents = enriched.filter(
-    (e) => classifyRole(e.role_name) === "agent"
-  );
+  const allAgents = [...new Map(
+    enriched
+      .filter((e) => classifyRole(e.role_name) === "agent")
+      .map((agent) => [agent.id, agent] as const)
+  ).values()];
 
   let agents = allAgents;
 
@@ -823,18 +886,18 @@ export async function getAccountTeamOverview(
     };
   });
 
-  const inactiveAgents = allAgents.filter((agent) => {
-    if (inactiveStatusId == null) {
-      return (agent.status_name ?? "").toUpperCase() === "INACTIVE";
-    }
+  const inactiveAgents = agents.filter((agent) => {
+    const normalizedStatusName = (agent.status_name ?? "").trim().toUpperCase();
+    const hasInactiveStatusId =
+      inactiveStatusId != null &&
+      String(agent.status_id) === String(inactiveStatusId);
 
-    const row = enriched.find((entry) => entry.id === agent.id);
-    return row?.status_id != null && row.status_id === inactiveStatusId;
+    return normalizedStatusName === "INACTIVE" || hasInactiveStatusId;
   }).length;
-  const activeAgents = allAgents.length - inactiveAgents;
+  const activeAgents = Math.max(agents.length - inactiveAgents, 0);
 
   return {
-    agents: allAgents.length,
+    agents: agents.length,
     activeAgents,
     inactiveAgents,
     qaCount: qaMembers.length,
@@ -884,26 +947,6 @@ export async function getDashboardOverview(
     const accounts = await Promise.all(
       accountCodes.map(async (code) => {
         const overview = await getAccountTeamOverview(code, user);
-        const accountId = await getAccountIdByCode(code);
-
-        let agentCount = overview.agents;
-        if (!isManager && accountId) {
-          const supabase = await createServerClient();
-          const { data: coachAssignments, error: coachAssignmentsError } = await supabase
-            .from("agent_assignments")
-            .select("agent_employee_id")
-            .eq("account_id", accountId)
-            .eq("qa_coach_employee_id", user.employee_id);
-
-          if (coachAssignmentsError) throw coachAssignmentsError;
-
-          const uniqueAgentIds = new Set(
-            (coachAssignments ?? [])
-              .map((a) => a.agent_employee_id)
-              .filter((id): id is number => id != null)
-          );
-          agentCount = uniqueAgentIds.size;
-        }
 
         return {
           account: code.toUpperCase() as AccountLabel,
