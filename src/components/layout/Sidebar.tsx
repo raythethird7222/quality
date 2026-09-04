@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Building2,
   ContactRound,
+  ClipboardList,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -72,6 +73,12 @@ const TOP_NAV: NavItem[] = [
     label: "Employees Management",
     icon: ContactRound,
     roles: ["admin", "quality_coordinator", "account_manager", "qa_supervisor"],
+  },
+  {
+    href: "/settings/evaluation-parameters",
+    label: "Evaluation Parameters",
+    icon: ClipboardList,
+    roles: ["admin", "qa_supervisor"],
   },
   {
     href: "/settings",
@@ -161,9 +168,12 @@ export default function Sidebar({
   // ACTIVE STATE
   // ============================================================
 
-  const isActive = (href: string) =>
-    pathname === href ||
-    (href !== "/dashboard" && pathname.startsWith(href));
+  const isActive = (href: string) => {
+    // Keep the parent Settings item inactive while one of its dedicated
+    // management pages is open.
+    if (href === "/settings" && pathname.startsWith("/settings/")) return false;
+    return pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+  };
 
   const isAccountActive = (key: AccountKey) =>
     pathname.startsWith(`/accounts/${key}`);

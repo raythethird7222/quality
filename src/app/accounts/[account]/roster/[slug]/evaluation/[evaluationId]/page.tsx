@@ -23,7 +23,8 @@ export default async function EvaluationPage({
   searchParams,
 }: EvaluationPageProps) {
   // Resolve the route parameters (account, person slug, evaluation id) and the
-  // guideline filter (which drives the checklist fetched from evaluation_param_rm).
+  // guideline filter (which drives the checklist fetched from the shared
+  // account + LOB parameter table).
   const { account, slug, evaluationId } = await params;
   const sp = await searchParams;
   const guideline =
