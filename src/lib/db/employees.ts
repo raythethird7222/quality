@@ -610,6 +610,9 @@ export async function getAccountAgents(
     .eq("account_id", accountId);
 
   if (user && !isManagerRole(user.role)) {
+    // This is an operational roster used by evaluator/coach panels, not the
+    // analytics scope. Keep agents visible when they are assigned in any
+    // operational capacity so evaluators can perform their work.
     query = query.or(
       `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
     );
@@ -757,6 +760,8 @@ export async function getAccountAssignmentRows(
     .eq("account_id", accountId);
 
   if (user && !isManagerRole(user.role)) {
+    // Assignment rows power operational allocation controls. They must not
+    // reuse the coach-only analytics scope.
     query = query.or(
       `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
     );

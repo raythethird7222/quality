@@ -34,8 +34,10 @@ type AccountFrameworkViewProps = {
   dailyTeamQaScore?: string;
   failedEvaluations?: number;
   coachHistory: AgentPerformance[];
+  evaluatedAgentIds: number[];
   agentRows: {
     name: string;
+    agentId?: number;
     lob: string;
     coach: string;
     evaluator: string;
@@ -88,6 +90,7 @@ export default function AccountFrameworkView({
   people: initialPeople,
   agentRows,
   coachHistory: initialCoachHistory,
+  evaluatedAgentIds: initialEvaluatedAgentIds,
 }: AccountFrameworkViewProps) {
   // Controls visibility of the timeline date picker popover.
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -110,7 +113,12 @@ export default function AccountFrameworkView({
   const [coachHistory, setCoachHistory] = useState<AgentPerformance[]>(initialCoachHistory);
   const [evaluatedAgentNames, setEvaluatedAgentNames] = useState<Set<string>>(
     () => new Set(
-      initialCoachHistory.map((person) => normalizePersonName(person.name)),
+      [
+        ...initialCoachHistory.map((person) => normalizePersonName(person.name)),
+        ...agentRows
+          .filter((row) => row.agentId != null && initialEvaluatedAgentIds.includes(row.agentId))
+          .map((row) => normalizePersonName(row.name)),
+      ],
     ),
   );
 
@@ -170,6 +178,12 @@ export default function AccountFrameworkView({
                 new Set(data.coachHistory.map((person: AgentPerformance) => normalizePersonName(person.name))),
               );
             }
+            if (seq === fetchSeq.current && Array.isArray(data.evaluatedAgentIds)) {
+              const evaluatedNames = agentRows
+                .filter((row) => row.agentId != null && data.evaluatedAgentIds.includes(row.agentId))
+                .map((row) => normalizePersonName(row.name));
+              setEvaluatedAgentNames((current) => new Set([...current, ...evaluatedNames]));
+            }
           })
           .catch(console.error);
         const params = new URLSearchParams({
@@ -201,7 +215,7 @@ export default function AccountFrameworkView({
         }
       }
     },
-    [unit]
+    [agentRows, unit]
   );
 
   // Navigate to previous/next day.

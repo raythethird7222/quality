@@ -29,6 +29,25 @@ export async function getAccountIdByCode(accountCode: string): Promise<number | 
   return data.account_id;
 }
 
+export const PARAMETER_ACCOUNT_CODES = ["COVA", "RM", "JS", "DFT"] as const;
+
+export function isParameterAccount(accountCode: string): boolean {
+  return PARAMETER_ACCOUNT_CODES.includes(accountCode.trim().toUpperCase() as (typeof PARAMETER_ACCOUNT_CODES)[number]);
+}
+
+export function getParameterTable(accountCode: string) {
+  switch (accountCode.trim().toUpperCase()) {
+    case "JS":
+      return "evaluation_param_js";
+    case "DFT":
+      return "evaluation_param_dft";
+    case "COVA":
+      return "evaluation_param_cova";
+    default:
+      return "evaluation_param_rm";
+  }
+}
+
 // Returns all employee statuses ordered by name.
 export async function getStatuses(): Promise<
   { status_id: number; status_name: string }[]
@@ -73,8 +92,9 @@ export async function getQaParametersByAccount(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
   const supabase = createAdminClient();
+  const parameterTable = getParameterTable(accountCode);
   let query = supabase
-    .from("evaluation_param_rm")
+    .from(parameterTable as "evaluation_param_rm")
     .select(
       "id, lob_name, guideline, attributes, clauses, score, compound, description, account_id, lob_id, display_order, is_active"
     )
@@ -95,8 +115,23 @@ export async function getQaParametersByAccount(
   }));
 }
 
+// Returns the active guidelines available for an account + assigned LOB.
+// The list is derived from the same parameter rows used to build the checklist
+// so the selector can never offer a guideline without matching parameters.
+export async function getEvaluationGuidelines(
+  accountCode: string,
+  lobId?: number
+) {
+  const parameters = await getQaParametersByAccount(accountCode, lobId);
+  return [...new Set(
+    parameters
+      .map((parameter) => parameter.guideline?.trim())
+      .filter((guideline): guideline is string => Boolean(guideline))
+  )];
+}
+
 // Returns the evaluation checklist for an account + guideline from the
-// evaluation_param_rm table, active rows ordered by display_order. The
+// account-specific parameter table, active rows ordered by display_order. The
 // checklist groups clauses under their attribute code, and the score column
 // is stored as text (e.g. "5") so it is parsed to a number here. When lobId
 // is provided, parameters are further filtered to that LOB.
@@ -110,8 +145,9 @@ export async function getEvaluationParameters(
   // Evaluation parameters are account configuration. Read them through the
   // trusted server client so RLS cannot hide the checklist from an evaluator.
   const supabase = createAdminClient();
+  const parameterTable = getParameterTable(accountCode);
   let query = supabase
-    .from("evaluation_param_rm")
+    .from(parameterTable as "evaluation_param_rm")
     .select(
       "id, lob_name, guideline, attributes, clauses, score, compound, description, account_id, lob_id, display_order, is_active"
     )
@@ -147,7 +183,7 @@ export type ChecklistGroup = {
   clauses: ChecklistClause[];
 };
 
-// Groups fetched evaluation_param_rm rows by attribute code. Returns the
+// Groups fetched account-specific parameter rows by attribute code. Returns the
 // groups plus the summed score of every clause (all fetched items count).
 export function buildEvaluationChecklist(
   rows: {
@@ -860,27 +896,16 @@ export async function getDashboardChartAnalytics(
 
   const accountIds = accounts.map((a) => a.account_id);
 
-  // Non-manager users (e.g. QA agents) see only the agents under them;
-  // managers/supervisors/admins see all evaluations.
+  // Resolve one mandatory agent scope before querying evaluations. For a QA
+  // user this is strictly qa_coach_employee_id, never evaluator ownership.
   let scopedAgentIds: number[] | null = null;
   if (user && !isManagerRole(user.role)) {
-    const { data: scopedAssignments, error: scopedAssignmentsError } = await supabase
-      .from("agent_assignments")
-      .select("agent_employee_id")
-      .in("account_id", accountIds)
-      .or(
-        `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
-      );
-
-    if (scopedAssignmentsError) throw scopedAssignmentsError;
-
-    scopedAgentIds = [
-      ...new Set(
-        (scopedAssignments ?? [])
-          .map((a) => a.agent_employee_id)
-          .filter((id): id is number => id != null)
-      ),
-    ];
+    const scopedByAccount = await Promise.all(
+      accountIds.map((accountId) => getScopedAgentIds(accountId, user)),
+    );
+    scopedAgentIds = [...new Set(
+      scopedByAccount.flatMap((scoped) => scoped.agentIds ?? []),
+    )];
   }
 
   const { startDate, endDate } = getDashboardDateRange(
@@ -1050,7 +1075,7 @@ export async function getDashboardChartAnalytics(
   const evaluationNames = await getEmployeeNameMap(evaluationEmployeeIds);
   const recentEvaluations = [...evaluations]
     .sort((a, b) => (b.evaluation_date ?? "").localeCompare(a.evaluation_date ?? ""))
-    .slice(0, 8)
+    .slice(0, 10)
     .map((evaluation) => ({
       evaluationId: evaluation.evaluation_id,
       date: evaluation.evaluation_date?.slice(0, 10) ?? "",
@@ -1196,6 +1221,46 @@ export async function getCoachEvaluationPerformance(
     }))
     .filter((person) => person.name)
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Returns evaluated agent IDs for the operational roster highlight. This is
+// intentionally separate from coach analytics: evaluation ownership does not
+// decide the highlight, and evaluator identity is not used as a restriction.
+export async function getEvaluatedAgentIdsForUser(
+  accountCode: string,
+  user: AuthUser,
+): Promise<number[]> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+
+  const supabase = createAdminClient();
+  let assignmentsQuery = supabase
+    .from("agent_assignments")
+    .select("agent_employee_id")
+    .eq("account_id", accountId);
+  if (!isManagerRole(user.role)) {
+    assignmentsQuery = assignmentsQuery.or(
+      `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
+    );
+  }
+  const { data: assignments } = await assignmentsQuery;
+  const agentIds = [...new Set(
+    (assignments ?? [])
+      .map((assignment) => assignment.agent_employee_id)
+      .filter((id): id is number => id != null),
+  )];
+  if (agentIds.length === 0) return [];
+
+  const { data: evaluations } = await supabase
+    .from("evaluations")
+    .select("agent_employee_id")
+    .eq("account_id", accountId)
+    .in("agent_employee_id", agentIds);
+  return [...new Set(
+    (evaluations ?? [])
+      .map((evaluation) => evaluation.agent_employee_id)
+      .filter((id): id is number => id != null),
+  )];
 }
 
 export async function getAgentEvaluations(

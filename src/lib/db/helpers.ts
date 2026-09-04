@@ -25,8 +25,8 @@ export type ScopedAgentResult = {
 
 /**
  * Resolves the agent IDs scoped to the given user's role within an account.
- * Managers/admins see all agents (returns null). Non-managers see only agents
- * they coach, evaluate, or lead.
+ * Managers/admins see all agents (returns null). QA users are scoped only by
+ * qa_coach_employee_id; other non-managers retain their operational scope.
  *
  * This is a single, shared query replacing 6+ duplicate implementations.
  */
@@ -41,13 +41,16 @@ export async function getScopedAgentIds(
   // Authorization remains explicit through user.employee_id below; use the
   // trusted server client so RLS cannot hide valid assignment scope rows.
   const supabase = createAdminClient();
-  const { data: scopedAssignments } = await supabase
+  let query = supabase
     .from("agent_assignments")
     .select("agent_employee_id")
-    .eq("account_id", accountId)
-    .or(
-      `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
-    );
+    .eq("account_id", accountId);
+  query = user.role === "qa"
+    ? query.eq("qa_coach_employee_id", user.employee_id)
+    : query.or(
+        `qa_coach_employee_id.eq.${user.employee_id},qa_evaluator_employee_id.eq.${user.employee_id},team_lead_employee_id.eq.${user.employee_id}`
+      );
+  const { data: scopedAssignments } = await query;
 
   const agentIds = [
     ...new Set(

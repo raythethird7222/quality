@@ -1,7 +1,7 @@
 "use client";
 
 // Interactive evaluation form: lets an assigned evaluator tick the checklist
-// clauses fetched from evaluation_param_rm and save a new evaluation.
+// clauses fetched from the account-specific parameter table and save a new evaluation.
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeft, CheckSquare, Phone, RotateCcw } from "lucide-react";
@@ -18,6 +18,7 @@ type EvaluationFormViewProps = {
   personName: string;
   accent: Accent;
   guideline: string;
+  guidelineOptions: string[];
   groups: ChecklistGroup[];
   totalScore: number;
   day?: string;
@@ -32,6 +33,7 @@ export default function EvaluationFormView({
   personName,
   accent,
   guideline,
+  guidelineOptions,
   groups,
   totalScore,
   day,
@@ -44,6 +46,12 @@ export default function EvaluationFormView({
   const accentFull = getAccentColors(selectedAccent);
   const router = useRouter();
   const displayName = slugToDisplayName(personName);
+
+  function handleGuidelineChange(nextGuideline: string) {
+    const params = new URLSearchParams(window.location.search);
+    params.set("guideline", nextGuideline);
+    router.replace(`${window.location.pathname}?${params.toString()}`);
+  }
 
   // Flatten checklist into a map of parameterId -> checked.
   // All items start unchecked; checking an item marks a deduction.
@@ -166,9 +174,23 @@ export default function EvaluationFormView({
                 <label className="text-[13px] font-semibold text-text-secondary">
                   Target Dynamic Guideline
                 </label>
-                <div className="rounded-lg border border-border-default bg-surface-overlay/50 px-3 py-2 text-[14px] text-text-primary">
-                  {guideline}
-                </div>
+                {guidelineOptions.length > 1 ? (
+                  <select
+                    value={guideline}
+                    onChange={(event) => handleGuidelineChange(event.target.value)}
+                    className="rounded-lg border border-border-default bg-surface-overlay/50 px-3 py-2 text-[14px] text-text-primary outline-none"
+                  >
+                    {guidelineOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="rounded-lg border border-border-default bg-surface-overlay/50 px-3 py-2 text-[14px] text-text-primary">
+                    {guideline}
+                  </div>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[13px] font-semibold text-text-secondary">
