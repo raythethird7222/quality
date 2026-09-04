@@ -5,7 +5,7 @@ export default function AnalyticsLoading() {
   return (
     <div className="min-h-full bg-surface-base">
       {/* Page container with responsive horizontal padding */}
-      <div className="mx-auto max-w-[1440px] px-6 py-5 md:px-9">
+      <div className="w-full px-6 py-5 md:px-9">
         {/* Title and subtitle placeholder rows */}
         <div className="mt-5 mb-6">
           <div className="h-8 w-64 animate-pulse rounded bg-surface-overlay" />

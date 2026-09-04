@@ -53,6 +53,7 @@ export const createEmployeeSchema = z.object({
   status_id: z.number().int().positive().optional(),
   hire_date: z.string().date().nullable().optional(),
   vici_link: z.string().trim().url("Valid VICI link is required").max(500).nullable().optional(),
+  role_id: z.number().int().positive().optional(),
 });
 
 // Validates the (partial) body for updating an employee's profile fields.
@@ -63,6 +64,7 @@ export const updateEmployeeSchema = z.object({
   status_id: z.number().int().positive().optional(),
   hire_date: z.string().date().nullable().optional(),
   vici_link: z.string().trim().url("Valid VICI link is required").max(500).nullable().optional(),
+  role_id: z.number().int().positive().optional(),
 });
 
 // Validates the body for creating an employee account assignment.

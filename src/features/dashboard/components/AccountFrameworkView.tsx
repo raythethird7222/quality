@@ -306,7 +306,7 @@ export default function AccountFrameworkView({
 
   return (
     <div className="min-h-full bg-surface-base text-text-primary">
-      <div className="mx-auto max-w-[1440px] px-6 py-5 md:px-9">
+      <div className="w-full px-6 py-5 md:px-9">
         <Breadcrumb
           backHref="/dashboard"
           segments={[

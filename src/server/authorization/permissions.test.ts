@@ -58,10 +58,10 @@ describe("Permission mapping (deny-by-default)", () => {
     expect(perms.has("dashboard:read")).toBe(true);
   });
 
-  it("qa role can create evaluations but NOT manage assignments", () => {
+  it("qa role can create evaluations and manage assignments", () => {
     const perms = getRolePermissions("qa");
     expect(perms.has("evaluations:create")).toBe(true);
-    expect(perms.has("assignments:manage")).toBe(false);
+    expect(perms.has("assignments:manage")).toBe(true);
     expect(perms.has("accounts:create")).toBe(false);
   });
 

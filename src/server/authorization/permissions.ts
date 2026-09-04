@@ -59,6 +59,7 @@ const ROLE_PERMISSION_MAP: Record<UserRole, Permission[]> = {
     "evaluations:read",
     "evaluations:create",
     "assignments:read",
+    "assignments:manage",
     "profile:read",
     "profile:update",
     "agent:use",

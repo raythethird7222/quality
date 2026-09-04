@@ -1,7 +1,8 @@
 "use client";
 
 // Employee directory with manager-only add and inline profile editing.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createBrowserClient } from "@/lib/supabase/client";
 import {
   Check,
   ChevronDown,
@@ -9,17 +10,20 @@ import {
   Mail,
   Pencil,
   Plus,
+  Trash2,
   Search,
   UserRound,
   X,
 } from "lucide-react";
 import Breadcrumb from "@/components/shared/Breadcrumb";
 import Pagination, { paginate } from "@/components/ui/pagination";
+import { useToast } from "@/components/ui/ToastProvider";
 import { getAccentColors } from "@/features/accounts/config";
 import { useAccent } from "@/features/settings/useAccent";
 import type { EmployeeManagementRow } from "@/lib/db/employees";
 
 type Status = { status_id: number; status_name: string };
+type Role = { role_id: number; role_name: string };
 type FormState = {
   employee_code: string;
   employee_name: string;
@@ -27,6 +31,7 @@ type FormState = {
   status_id: string;
   hire_date: string;
   vici_link: string;
+  role_id: string;
 };
 
 const emptyForm: FormState = {
@@ -36,9 +41,10 @@ const emptyForm: FormState = {
   status_id: "",
   hire_date: "",
   vici_link: "",
+  role_id: "",
 };
 
-function toForm(employee: EmployeeManagementRow | null, activeStatusId: number | null): FormState {
+function toForm(employee: EmployeeManagementRow | null, activeStatusId: number | null, roles: Role[]): FormState {
   return employee
     ? {
         employee_code: employee.employee_code ?? "",
@@ -47,6 +53,7 @@ function toForm(employee: EmployeeManagementRow | null, activeStatusId: number |
         status_id: employee.status_id == null ? "" : String(employee.status_id),
         hire_date: employee.hire_date ?? "",
         vici_link: employee.vici_link ?? "",
+        role_id: String(employee.role_id ?? roles.find((role) => employee.assignments.some((assignment) => assignment.role_name === role.role_name))?.role_id ?? ""),
       }
     : { ...emptyForm, status_id: activeStatusId == null ? "" : String(activeStatusId) };
 }
@@ -54,24 +61,41 @@ function toForm(employee: EmployeeManagementRow | null, activeStatusId: number |
 export default function EmployeeManagementView({
   initialEmployees,
   statuses,
+  roles,
 }: {
   initialEmployees: EmployeeManagementRow[];
   statuses: Status[];
+  roles: Role[];
 }) {
   const accent = useAccent();
   const colors = getAccentColors(accent);
   const activeStatusId = statuses.find((status) => status.status_name.trim().toUpperCase() === "ACTIVE")?.status_id ?? null;
+  const assignableRoles = roles.filter((role) => role.role_name.trim().toLowerCase() !== "admin");
+  const defaultRoleId = assignableRoles.find((role) => role.role_name.trim().toLowerCase() === "agent")?.role_id ?? assignableRoles[0]?.role_id ?? null;
   const [employees, setEmployees] = useState(initialEmployees);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [roleFilter, setRoleFilter] = useState("all");
   const [employeePage, setEmployeePage] = useState(1);
   const [employeePageSize, setEmployeePageSize] = useState(20);
   const [editing, setEditing] = useState<EmployeeManagementRow | null>(null);
+  const [deleting, setDeleting] = useState<EmployeeManagementRow | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteSaving, setDeleteSaving] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
-  const [form, setForm] = useState<FormState>(() => toForm(null, activeStatusId));
+  const [form, setForm] = useState<FormState>(() => toForm(null, activeStatusId, roles));
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    const client = createBrowserClient();
+    const channel = client
+      .channel("employee-directory-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "employees" }, () => window.location.reload())
+      .on("postgres_changes", { event: "*", schema: "public", table: "employee_assignments" }, () => window.location.reload())
+      .subscribe();
+    return () => { void client.removeChannel(channel); };
+  }, []);
 
   const filteredEmployees = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -83,24 +107,57 @@ export default function EmployeeManagementView({
         ...employee.assignments.map((assignment) => assignment.account_code),
       ].some((value) => value?.toLowerCase().includes(normalized));
       const matchesStatus = statusFilter === "all" || String(employee.status_id) === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesRole = roleFilter === "all" || employee.role_id === Number(roleFilter) || employee.assignments.some((assignment) => assignment.role_name === roleFilter);
+      return matchesSearch && matchesStatus && matchesRole;
     });
-  }, [employees, query, statusFilter]);
+  }, [employees, query, statusFilter, roleFilter]);
 
   const openAdd = () => {
     setEditing(null);
-    setForm(toForm(null, activeStatusId));
-    setError("");
-    setNotice("");
+    setForm(toForm(null, activeStatusId, roles));
     setIsAdding(true);
   };
 
   const openEdit = (employee: EmployeeManagementRow) => {
     setEditing(employee);
-    setForm(toForm(employee, activeStatusId));
-    setError("");
-    setNotice("");
+    setForm(toForm(employee, activeStatusId, roles));
     setIsAdding(true);
+  };
+
+  const openDelete = (employee: EmployeeManagementRow) => {
+    setDeleting(employee);
+    setDeleteConfirmation("");
+  };
+
+  const closeDelete = () => {
+    if (!deleteSaving) {
+      setDeleting(null);
+      setDeleteConfirmation("");
+    }
+  };
+
+  const deleteEmployee = async () => {
+    if (!deleting || deleteConfirmation !== (deleting.employee_name ?? "")) return;
+
+    setDeleteSaving(true);
+    try {
+      const response = await fetch(`/api/employees?id=${deleting.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: deleteConfirmation }),
+      });
+      const result = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !result.success) throw new Error(result.error ?? "Unable to delete employee");
+
+      setEmployees((current) => current.filter((employee) => employee.id !== deleting.id));
+      setDeleting(null);
+      setDeleteConfirmation("");
+      showToast("success", "Employee deleted permanently.");
+    } catch (deleteError) {
+      showToast("error", deleteError instanceof Error ? deleteError.message : "Unable to delete employee");
+    } finally {
+      setDeleteSaving(false);
+    }
   };
 
   const closeModal = () => {
@@ -114,7 +171,6 @@ export default function EmployeeManagementView({
   const saveEmployee = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
-    setError("");
     try {
       const payload = {
         employee_code: form.employee_code,
@@ -123,6 +179,7 @@ export default function EmployeeManagementView({
         status_id: form.status_id ? Number(form.status_id) : undefined,
         hire_date: form.hire_date || null,
         vici_link: form.vici_link || null,
+        role_id: form.role_id ? Number(form.role_id) : defaultRoleId ?? undefined,
       };
       const response = await fetch(editing ? `/api/employees?id=${editing.id}` : "/api/employees", {
         method: editing ? "PATCH" : "POST",
@@ -132,12 +189,16 @@ export default function EmployeeManagementView({
       const result = (await response.json()) as { success?: boolean; employee?: EmployeeManagementRow; error?: string };
       if (!response.ok || !result.success || !result.employee) throw new Error(result.error ?? "Unable to save employee");
 
-      const saved = { ...result.employee, status_name: statuses.find((status) => status.status_id === result.employee?.status_id)?.status_name ?? null, assignments: editing?.assignments ?? [] };
+      const selectedRoleName = roles.find((role) => role.role_id === Number(form.role_id))?.role_name ?? roles.find((role) => role.role_id === defaultRoleId)?.role_name ?? "Agent";
+      const updatedAssignments = editing
+        ? editing.assignments.map((assignment) => ({ ...assignment, role_name: selectedRoleName }))
+        : result.employee.assignments ?? [];
+      const saved = { ...result.employee, status_name: statuses.find((status) => status.status_id === result.employee?.status_id)?.status_name ?? null, assignments: updatedAssignments };
       setEmployees((current) => editing ? current.map((employee) => employee.id === saved.id ? saved : employee) : [...current, saved].sort((a, b) => (a.employee_name ?? "").localeCompare(b.employee_name ?? "")));
       setIsAdding(false);
-      setNotice(editing ? "Employee details updated." : "Employee added successfully.");
+      showToast("success", editing ? "Employee details updated." : "Employee added successfully.");
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to save employee");
+      showToast("error", saveError instanceof Error ? saveError.message : "Unable to save employee");
     } finally {
       setSaving(false);
     }
@@ -148,7 +209,7 @@ export default function EmployeeManagementView({
 
   return (
     <main className="min-h-full bg-surface-base text-text-primary">
-      <div className="mx-auto max-w-[1440px] px-4 py-5 sm:px-6 sm:py-6 md:px-9">
+      <div className="w-full px-4 py-5 sm:px-6 sm:py-6 md:px-9">
         <Breadcrumb backHref="/dashboard" segments={[{ label: "Employees Management" }]} accent={accent} />
 
         <section className="relative mt-5 overflow-hidden rounded-2xl border border-border-default bg-card p-5 shadow-sm md:p-7">
@@ -170,7 +231,6 @@ export default function EmployeeManagementView({
           </div>
         </section>
 
-        {notice && <div className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-[13px] font-medium text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><Check className="h-4 w-4" />{notice}</div>}
 
         <div className="mt-5 grid gap-4 sm:grid-cols-3">
           <SummaryCard label="Total Employees" value={employees.length} icon={<UserRound className="h-5 w-5" />} color={colors} />
@@ -188,6 +248,13 @@ export default function EmployeeManagementView({
               <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setEmployeePage(1); }} aria-label="Filter employees by status" className="h-11 w-full appearance-none rounded-lg border border-border-default bg-surface-raised px-3 pr-9 text-[14px] leading-5 text-text-primary outline-none focus:border-app-accent sm:w-44">
                 <option value="all">All statuses</option>
                 {statuses.map((status) => <option key={status.status_id} value={status.status_id}>{status.status_name}</option>)}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+            </div>
+            <div className="relative">
+              <select value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value); setEmployeePage(1); }} aria-label="Filter employees by role" className="h-11 w-full appearance-none rounded-lg border border-border-default bg-surface-raised px-3 pr-9 text-[14px] leading-5 text-text-primary outline-none focus:border-app-accent sm:w-44">
+                <option value="all">All roles</option>
+                {assignableRoles.map((role) => <option key={role.role_id} value={role.role_id}>{role.role_name}</option>)}
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
             </div>
@@ -210,8 +277,8 @@ export default function EmployeeManagementView({
                     <td className="whitespace-nowrap px-4 py-3.5"><span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${isActive ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"}`}>{employee.status_name || "Unknown"}</span></td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-[13px] leading-5 text-text-secondary">{employee.hire_date || "Not set"}</td>
                     <td className="whitespace-nowrap px-4 py-3.5">{employee.vici_link ? <a href={employee.vici_link} target="_blank" rel="noreferrer" className={`${colors.text} text-[13px] font-semibold hover:underline`}>Open VICI</a> : <span className="text-[13px] text-text-muted">Not set</span>}</td>
-                    <td className="px-4 py-3.5"><div className="flex max-w-[250px] flex-wrap gap-1.5">{employee.assignments.length === 0 ? <span className="text-[13px] text-text-muted">No assignments</span> : employee.assignments.map((assignment, index) => <span key={`${assignment.account_code}-${index}`} className="rounded-md bg-surface-raised px-2 py-1 text-[11px] font-semibold leading-4 text-text-secondary">{assignment.account_code} · {assignment.role_name}</span>)}</div></td>
-                    <td className="whitespace-nowrap px-4 py-3.5 text-right"><button type="button" onClick={() => openEdit(employee)} className={`inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-2 text-[12px] font-semibold text-text-secondary transition ${colors.hoverBg}`}><Pencil className="h-3.5 w-3.5" /> Edit</button></td>
+                    <td className="px-4 py-3.5"><div className="flex max-w-[250px] flex-wrap gap-1.5">{employee.assignments.length === 0 ? <span className="rounded-md bg-surface-raised px-2 py-1 text-[11px] font-semibold leading-4 text-text-secondary">{roles.find((role) => role.role_id === employee.role_id)?.role_name ?? "No assignment"}</span> : employee.assignments.map((assignment, index) => <span key={`${assignment.account_code}-${index}`} className="rounded-md bg-surface-raised px-2 py-1 text-[11px] font-semibold leading-4 text-text-secondary">{assignment.account_code} · {assignment.role_name}</span>)}</div></td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right"><div className="flex justify-end gap-2"><button type="button" onClick={() => openEdit(employee)} className={`inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-2 text-[12px] font-semibold text-text-secondary transition ${colors.hoverBg}`}><Pencil className="h-3.5 w-3.5" /> Edit</button><button type="button" onClick={() => openDelete(employee)} className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-2 text-[12px] font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/40"><Trash2 className="h-3.5 w-3.5" /> Delete</button></div></td>
                   </tr>;
                 })}
               </tbody>
@@ -231,7 +298,7 @@ export default function EmployeeManagementView({
         </section>
       </div>
 
-      {isAdding && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="employee-dialog-title" onClick={closeModal}>
+      {isAdding && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="employee-dialog-title">
         <form onSubmit={saveEmployee} onClick={(event) => event.stopPropagation()} className="w-full max-w-2xl overflow-hidden rounded-2xl border border-border-default bg-card shadow-2xl">
           <div className="flex items-start justify-between gap-4 border-b border-border-subtle bg-surface-raised/70 px-5 py-4"><div><p className={`text-[11px] font-bold uppercase tracking-[0.16em] ${colors.text}`}>{editing ? "Complete employee record" : "New employee"}</p><h2 id="employee-dialog-title" className="mt-1 text-[19px] font-bold text-text-primary">{editing ? "Edit Employee" : "Add Employee"}</h2></div><button type="button" onClick={closeModal} className="rounded-lg p-2 text-text-muted hover:bg-surface-overlay" aria-label="Close"><X className="h-5 w-5" /></button></div>
           <div className="grid gap-4 p-5 sm:grid-cols-2">
@@ -241,10 +308,18 @@ export default function EmployeeManagementView({
             <Field label="Hire date" type="date" value={form.hire_date} onChange={(value) => updateField("hire_date", value)} />
             <label className="block"><span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">Status</span><select value={form.status_id} onChange={(event) => updateField("status_id", event.target.value)} className="h-10 w-full rounded-lg border border-border-default bg-surface-raised px-3 text-[13px] text-text-primary outline-none focus:border-app-accent">{statuses.map((status) => <option key={status.status_id} value={status.status_id}>{status.status_name}</option>)}</select></label>
             <Field label="VICI link" type="url" value={form.vici_link} onChange={(value) => updateField("vici_link", value)} placeholder="https://..." />
+            <label className="block"><span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">Role</span><select required value={form.role_id || String(defaultRoleId ?? "")} onChange={(event) => updateField("role_id", event.target.value)} className="h-10 w-full rounded-lg border border-border-default bg-surface-raised px-3 text-[13px] text-text-primary outline-none focus:border-app-accent">{assignableRoles.map((role) => <option key={role.role_id} value={role.role_id}>{role.role_name}</option>)}</select></label>
           </div>
-          {error && <p className="mx-5 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-[12px] text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">{error}</p>}
-          <div className="flex justify-end gap-2 border-t border-border-subtle px-5 py-4"><button type="button" onClick={closeModal} className="rounded-lg border border-border-default px-4 py-2.5 text-[13px] font-semibold text-text-secondary hover:bg-surface-overlay">Cancel</button><button disabled={saving} type="submit" className={`rounded-lg ${colors.bg} px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60`}>{saving ? "Saving..." : editing ? "Save changes" : "Add employee"}</button></div>
+          <div className="flex justify-end border-t border-border-subtle px-5 py-4"><button disabled={saving} type="submit" className={`rounded-lg ${colors.bg} px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60`}>{saving ? "Saving..." : editing ? "Save changes" : "Add employee"}</button></div>
         </form>
+      </div>}
+
+      {deleting && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" onClick={closeDelete}>
+        <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-red-200 bg-card shadow-2xl dark:border-red-900/60" onClick={(event) => event.stopPropagation()}>
+          <div className="border-b border-red-200 bg-red-50 px-5 py-4 dark:border-red-900/60 dark:bg-red-950/30"><h2 id="delete-dialog-title" className="text-[18px] font-bold text-red-700 dark:text-red-300">Delete employee permanently?</h2><p className="mt-1 text-[13px] leading-5 text-red-700/80 dark:text-red-300/80">This removes the employee, account assignments, QA relationships, and related performance records. This action cannot be undone.</p></div>
+          <div className="space-y-3 p-5"><p className="text-[13px] text-text-secondary">Type <span className="font-semibold text-text-primary">{deleting.employee_name || "the employee name"}</span> to confirm.</p><input autoFocus value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder={deleting.employee_name ?? "Employee name"} className="h-11 w-full rounded-lg border border-border-default bg-surface-raised px-3 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted focus:border-red-400 focus:ring-2 focus:ring-red-500/15" /></div>
+          <div className="flex justify-end gap-2 border-t border-border-subtle px-5 py-4"><button type="button" onClick={closeDelete} disabled={deleteSaving} className="rounded-lg border border-border-default px-4 py-2.5 text-[13px] font-semibold text-text-secondary hover:bg-surface-overlay">Cancel</button><button type="button" onClick={() => void deleteEmployee()} disabled={deleteSaving || deleteConfirmation !== (deleting.employee_name ?? "")} className="rounded-lg bg-red-600 px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50">{deleteSaving ? "Deleting..." : "Delete permanently"}</button></div>
+        </div>
       </div>}
     </main>
   );

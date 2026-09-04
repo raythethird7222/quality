@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/components/ui/ThemeProvider";
+import { ToastProvider } from "@/components/ui/ToastProvider";
 import AppShell from "@/components/layout/AppShell";
 import "./globals.css";
 
@@ -67,9 +68,11 @@ export default function RootLayout({
       {/* Full-height shell: providers wrap the persistent AppShell and routed children. */}
       <body className="h-screen overflow-hidden flex antialiased">
         <ThemeProvider>
-          <AuthProvider>
-            <AppShell>{children}</AppShell>
-          </AuthProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <AppShell>{children}</AppShell>
+            </AuthProvider>
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

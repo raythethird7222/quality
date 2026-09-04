@@ -33,6 +33,7 @@ export default function Header({
   const [open, setOpen] = useState(false);
   // Tracks whether the notification panel is open.
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   // Ref to the profile menu container for outside-click detection.
   const menuRef = useRef<HTMLDivElement>(null);
   // Ref to the trigger button for portal positioning.
@@ -96,7 +97,7 @@ export default function Header({
   if (loading || !user) {
     return (
       <header className="border-b border-border bg-surface-base/80 backdrop-blur">
-        <nav className="navbar mx-auto flex max-w-[1440px] items-center justify-between px-6 py-3.5 md:px-10">
+        <nav className="navbar flex w-full items-center justify-between px-6 py-3.5 md:px-10">
           <div className="h-6 w-32 animate-pulse rounded bg-surface-overlay" />
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 animate-pulse rounded-full bg-surface-overlay" />
@@ -153,9 +154,7 @@ export default function Header({
             className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-border-default bg-surface-raised text-text-primary transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-accent"
           >
             <Bell className="h-4 w-4" aria-hidden="true" />
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-crimson text-[9px] font-semibold leading-none text-white">
-              3
-            </span>
+            {unreadNotifications > 0 && <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-crimson text-[9px] font-semibold leading-none text-white">{unreadNotifications > 9 ? "9+" : unreadNotifications}</span>}
           </button>
           <div ref={menuRef} className="relative">
             <button
@@ -245,7 +244,8 @@ export default function Header({
             <NotificationPanel
               open={notificationsOpen}
               onClose={() => setNotificationsOpen(false)}
-              triggerRef={notificationTriggerRef}
+              employeeId={user.employee_id}
+              onUnreadCountChange={setUnreadNotifications}
             />
           </div>
         </div>

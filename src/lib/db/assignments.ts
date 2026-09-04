@@ -1,13 +1,19 @@
 // Assignment data access: resolves selectable people/LOBs for an account and
 // persists agent assignment rows (create / update / new-employee) to Supabase.
 
-import { createServerClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import { getAccountIdByCode, getStatuses } from "@/lib/db/quality";
 import type { Database } from "@/types/database";
 import type { NewEmployeeInput } from "@/features/assignments/validation";
 
 // A simple id + display-name option used to populate dropdowns.
 export type IdNameOption = { id: number; name: string };
+
+// Existing account agents that can receive their first QA assignment.
+export type AvailableAgentOption = IdNameOption & {
+  assignmentId?: number;
+  lobId?: number;
+};
 
 // A single assignment row enriched with ids for the editable table.
 export type AssignmentTableRow = {
@@ -46,14 +52,17 @@ export async function getAccountPeople(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
-  const { data: assignments } = await supabase
+  const { data: assignments, error: assignmentsErr } = await supabase
     .from("agent_assignments")
     .select(
       "agent_employee_id, qa_coach_employee_id, qa_evaluator_employee_id, team_lead_employee_id"
     )
     .eq("account_id", accountId);
+  if (assignmentsErr) {
+    console.error("[assignments] getAccountPeople query error:", assignmentsErr.message);
+  }
 
   const ids = new Set<number>();
   for (const a of assignments ?? []) {
@@ -65,10 +74,13 @@ export async function getAccountPeople(
   }
   if (ids.size === 0) return [];
 
-  const { data: employees } = await supabase
+  const { data: employees, error: employeesErr } = await supabase
     .from("employees")
     .select("id, employee_name")
     .in("id", [...ids]);
+  if (employeesErr) {
+    console.error("[assignments] getAccountPeople employees error:", employeesErr.message);
+  }
 
   return (employees ?? [])
     .map((e) => ({ id: e.id, name: e.employee_name ?? "Unknown" }))
@@ -81,13 +93,16 @@ export async function getAccountLobs(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("lobs")
     .select("lob_id, lob_name")
     .eq("account_id", accountId)
     .order("lob_name", { ascending: true });
+  if (error) {
+    console.error("[assignments] getAccountLobs query error:", error.message);
+  }
 
   return (data ?? []).map((l) => ({ id: l.lob_id, name: l.lob_name }));
 }
@@ -102,11 +117,14 @@ export async function getAccountCoaches(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
-  const { data: roles } = await supabase
+  const { data: roles, error: rolesErr } = await supabase
     .from("roles")
     .select("role_id, role_name");
+  if (rolesErr) {
+    console.error("[assignments] getAccountCoaches roles error:", rolesErr.message);
+  }
   const coachRoleIds = (roles ?? [])
     .filter((r) => {
       const name = r.role_name.trim().toLowerCase().replace(/[_\s]+/g, " ");
@@ -160,11 +178,14 @@ export async function getAccountEvaluators(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
-  const { data: roles } = await supabase
+  const { data: roles, error: rolesErr } = await supabase
     .from("roles")
     .select("role_id, role_name");
+  if (rolesErr) {
+    console.error("[assignments] getAccountEvaluators roles error:", rolesErr.message);
+  }
   const evaluatorRoleIds = (roles ?? [])
     .filter((r) => {
       const name = r.role_name.trim().toLowerCase().replace(/[_\s]+/g, " ");
@@ -212,11 +233,14 @@ export async function getAccountTeamLeads(
 ): Promise<IdNameOption[]> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
-  const { data: roles } = await supabase
+  const { data: roles, error: rolesErr } = await supabase
     .from("roles")
     .select("role_id, role_name");
+  if (rolesErr) {
+    console.error("[assignments] getAccountTeamLeads roles error:", rolesErr.message);
+  }
   const tlRoleIds = (roles ?? [])
     .filter((r) => {
       const name = r.role_name.trim().toLowerCase().replace(/[_\s]+/g, " ");
@@ -260,6 +284,54 @@ export async function getAccountTeamLeads(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Returns agents with no account assignment yet. QA creates the account link
+// when the agent is first assigned from this page.
+export async function getAccountAvailableAgents(
+  accountCode: string
+): Promise<AvailableAgentOption[]> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+  const supabase = createAdminClient();
+
+  const { data: roles } = await supabase
+    .from("roles")
+    .select("role_id, role_name");
+  const agentRoleIds = (roles ?? [])
+    .filter((role) => {
+      const name = role.role_name.trim().toLowerCase().replace(/[_\s]+/g, " ");
+      return name === "agent" || name === "agents";
+    })
+    .map((role) => role.role_id);
+
+  if (agentRoleIds.length === 0) return [];
+
+  const [{ data: agentEmployees }, { data: employeeAssignments }, { data: currentAssignments }] =
+    await Promise.all([
+      supabase
+        .from("employees")
+        .select("id, employee_name")
+        .in("role_id", agentRoleIds),
+      supabase
+        .from("employee_assignments")
+        .select("employee_id"),
+      supabase
+        .from("agent_assignments")
+        .select("agent_employee_id")
+        .eq("account_id", accountId),
+    ]);
+
+  const accountAssignedIds = new Set((employeeAssignments ?? []).map((row) => row.employee_id));
+  const alreadyInAccountIds = new Set((currentAssignments ?? []).map((row) => row.agent_employee_id));
+
+  return (agentEmployees ?? [])
+    .filter((employee) => !accountAssignedIds.has(employee.id) && !alreadyInAccountIds.has(employee.id))
+    .map((employee) => ({
+      id: employee.id,
+      name: employee.employee_name ?? "Unknown",
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // Loads the account's agent assignment rows enriched with the ids the editable
 // table needs (agent/LOB/coach/evaluator/team-lead ids). Managers see all
 // rows; everyone else sees only agents they coach, evaluate, or lead.
@@ -270,7 +342,7 @@ export async function getAccountAssignmentRowsWithIds(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
   let query = supabase
     .from("agent_assignments")
@@ -287,7 +359,11 @@ export async function getAccountAssignmentRowsWithIds(
   }
 
   const { data: assignments, error } = await query;
-  if (error || !assignments || assignments.length === 0) return [];
+  if (error) {
+    console.error("[assignments] getAccountAssignmentRowsWithIds query error:", error.message, error.details, error.hint);
+    return [];
+  }
+  if (!assignments || assignments.length === 0) return [];
 
   const ids = new Set<number>();
   for (const a of assignments) {
@@ -332,19 +408,17 @@ export async function persistAgentAssignments(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) throw new Error("Account not found");
 
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
   // Membership sets used to validate references against this account only.
   // Any employee assigned to the account (regardless of role/assignment) is a
   // valid agent, coach, evaluator, or team lead reference.
-  const { data: empAssignments } = await supabase
-    .from("employee_assignments")
-    .select("employee_id")
-    .eq("account_id", accountId);
+  const { data: employeesForAccount } = await supabase
+    .from("employees")
+    .select("id")
+    .not("role_id", "is", null);
 
-  const validEmployeeIds = new Set<number>(
-    (empAssignments ?? []).map((a) => a.employee_id)
-  );
+  const validEmployeeIds = new Set<number>((employeesForAccount ?? []).map((employee) => employee.id));
 
   const { data: lobs } = await supabase
     .from("lobs")
@@ -358,6 +432,25 @@ export async function persistAgentAssignments(
   const agentRoleId =
     roles?.find((r) => r.role_name.trim().toLowerCase() === "agent")?.role_id ??
     null;
+  const agentRoleIds = (roles ?? [])
+    .filter((role) => {
+      const name = role.role_name.trim().toLowerCase().replace(/[_\s]+/g, " ");
+      return name === "agent" || name === "agents";
+    })
+    .map((role) => role.role_id);
+  const { data: accountAgentAssignments } = agentRoleIds.length > 0
+    ? await supabase
+        .from("employees")
+        .select("id")
+        .in("role_id", agentRoleIds)
+    : { data: [] };
+  const validAgentIds = new Set<number>(
+    (accountAgentAssignments ?? []).map((employee) => employee.id)
+  );
+  const { data: existingAgentAssignments } = await supabase
+    .from("agent_assignments")
+    .select("assignment_id, agent_employee_id, qa_coach_employee_id, qa_evaluator_employee_id")
+    .eq("account_id", accountId);
 
   const statuses = await getStatuses();
   const statusMap = new Map(
@@ -442,9 +535,44 @@ export async function persistAgentAssignments(
     if (!row.agent && agentEmployeeId != null && !validEmployeeIds.has(agentEmployeeId)) {
       throw new Error("Agent is not assigned to this account");
     }
+    if (!row.agent && agentEmployeeId != null && !validAgentIds.has(agentEmployeeId)) {
+      throw new Error("Selected employee is not an agent in this account");
+    }
+    if (!row.agent && !row.assignmentId) {
+      const existing = existingAgentAssignments?.find(
+        (assignment) => assignment.agent_employee_id === agentEmployeeId
+      );
+      if (existing?.qa_coach_employee_id != null || existing?.qa_evaluator_employee_id != null) {
+        throw new Error("This agent already has a QA assignment");
+      }
+    }
     if (!validLobIds.has(row.lobId)) {
       throw new Error("Selected LOB does not belong to this account");
     }
+
+    // The employee is intentionally unassigned until QA chooses an account.
+    // Create that account link at the same time as the first QA assignment.
+    if (!row.agent && !row.assignmentId) {
+      const { data: accountLink, error: accountLinkError } = await supabase
+        .from("employee_assignments")
+        .select("assignment_id")
+        .eq("employee_id", agentEmployeeId)
+        .eq("account_id", accountId)
+        .maybeSingle();
+      if (accountLinkError) throw new Error("Could not verify the agent account assignment");
+      if (!accountLink) {
+        const { error } = await supabase
+          .from("employee_assignments")
+          .insert({
+            employee_id: agentEmployeeId,
+            role_id: agentRoleId,
+            account_id: accountId,
+            lob_id: row.lobId,
+          });
+        if (error) throw new Error(`Could not assign agent to account: ${error.message}`);
+      }
+    }
+
     for (const fid of [row.coachId, row.evaluatorId, row.teamLeadId]) {
       if (fid != null && !validEmployeeIds.has(fid)) {
         throw new Error(
@@ -467,6 +595,7 @@ export async function persistAgentAssignments(
         .from("agent_assignments")
         .update(payload)
         .eq("assignment_id", row.assignmentId)
+        .eq("account_id", accountId)
         .select("assignment_id")
         .single();
       if (error)

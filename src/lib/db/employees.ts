@@ -408,6 +408,7 @@ export type EmployeeManagementRow = {
   employee_code: string | null;
   employee_name: string | null;
   employee_email: string | null;
+  role_id: number | null;
   status_id: number | null;
   status_name: string | null;
   hire_date: string | null;
@@ -426,7 +427,7 @@ export async function getEmployeeManagementRows(): Promise<EmployeeManagementRow
   const [{ data: employees, error }, { data: statuses }] = await Promise.all([
     supabase
       .from("employees")
-      .select("id, employee_code, employee_name, employee_email, status_id, hire_date, vici_link")
+      .select("id, employee_code, employee_name, employee_email, role_id, status_id, hire_date, vici_link")
       .order("employee_name", { ascending: true }),
     supabase.from("statuses").select("status_id, status_name"),
   ]);
@@ -449,6 +450,7 @@ export async function getEmployeeManagementRows(): Promise<EmployeeManagementRow
 
   return (employees ?? []).map((employee) => ({
     ...employee,
+    role_id: employee.role_id ?? null,
     status_name: employee.status_id == null ? null : statusMap.get(employee.status_id) ?? null,
     assignments: assignments
       .filter((assignment) => assignment.employee_id === employee.id)

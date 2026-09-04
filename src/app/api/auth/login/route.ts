@@ -23,6 +23,12 @@ type EmployeeLoginRow = {
   avatar_url: string | null;
 };
 
+function employeeCodeCandidates(value: string) {
+  const normalized = value.trim().toUpperCase();
+  const suffix = normalized.includes("-") ? normalized.split("-").pop() : null;
+  return [...new Set([normalized, suffix].filter((code): code is string => Boolean(code)))];
+}
+
 async function findAuthUserByEmail(email: string) {
   const admin = createAdminClient();
   let page = 1;
@@ -67,20 +73,21 @@ async function ensureEmailCodeAuthUser(email: string, employeeCode: string) {
 
   let employee = ((data as VerifiedEmployee[] | null) ?? [])[0] ?? null;
 
-  if (error) {
+  if (error || !employee) {
     const lookup = await admin
       .from("employees")
       .select("id, employee_code, employee_name, employee_email, avatar_url")
       .ilike("employee_email", email)
-      .maybeSingle();
+      .limit(20);
 
     if (lookup.error) {
       throw new Error("Unable to verify employee login");
     }
 
-    const fallbackEmployee = lookup.data as EmployeeLoginRow | null;
-    const matchesCode =
-      fallbackEmployee?.employee_code?.trim().toUpperCase() === employeeCode;
+    const fallbackEmployee = (lookup.data as EmployeeLoginRow[] | null)?.find((candidate) =>
+      employeeCodeCandidates(employeeCode).includes(candidate.employee_code?.trim().toUpperCase() ?? "")
+    ) ?? null;
+    const matchesCode = Boolean(fallbackEmployee);
 
     if (!fallbackEmployee || !matchesCode) {
       throw new AuthenticationError("Invalid email or employee code");

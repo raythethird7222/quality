@@ -93,7 +93,7 @@ export default function SettingsView() {
   // Page layout: breadcrumb, header, sidebar tabs, and the active panel.
   return (
     <div className="min-h-full bg-surface-base text-text-primary">
-      <div className="mx-auto max-w-[1440px] px-6 py-6 md:px-9">
+      <div className="w-full px-6 py-6 md:px-9">
         <Breadcrumb
           backHref="/dashboard"
           segments={[{ label: "Settings" }]}

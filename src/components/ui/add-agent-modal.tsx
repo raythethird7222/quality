@@ -1,22 +1,16 @@
 "use client";
 
-// Modal form for creating a new agent with LOB, coach, evaluator, and team lead.
+// Modal form for assigning an existing account agent to QA coverage.
 import { useState } from "react";
 import { AlertCircle, ChevronDown, Save, UserPlus, X } from "lucide-react";
 import { getAccentColors } from "@/features/accounts/config";
-import { newEmployeeSchema } from "@/features/assignments/validation";
 import type { Accent } from "@/types";
-import type { IdNameOption } from "@/lib/db/assignments";
+import type { AvailableAgentOption, IdNameOption } from "@/lib/db/assignments";
 
 // Payload emitted when a new agent is saved.
 export type NewAgentPayload = {
-  agent: {
-    employeeCode: string;
-    employeeName: string;
-    employeeEmail: string;
-    hireDate: string;
-    status: "ACTIVE" | "INACTIVE";
-  };
+  assignmentId?: number;
+  agentId: number;
   lobId: number;
   coachId: number | null;
   evaluatorId: number | null;
@@ -35,8 +29,10 @@ type AddAgentModalProps = {
   onClose: () => void;
   onSave: (payload: NewAgentPayload) => SaveAgentResult | Promise<SaveAgentResult>;
   accent: Accent;
-  people: IdNameOption[];
+  agents: AvailableAgentOption[];
   lobs: IdNameOption[];
+  coaches: IdNameOption[];
+  evaluators: IdNameOption[];
   teamLeads: IdNameOption[];
 };
 
@@ -46,56 +42,37 @@ export default function AddAgentModal({
   onClose,
   onSave,
   accent,
-  people,
+  agents,
   lobs,
+  coaches,
+  evaluators,
   teamLeads,
 }: AddAgentModalProps) {
   const a = getAccentColors(accent);
-  const [employeeCode, setEmployeeCode] = useState("");
-  const [employeeName, setEmployeeName] = useState("");
-  const [employeeEmail, setEmployeeEmail] = useState("");
-  const [hireDate, setHireDate] = useState("");
-  const [lobId, setLobId] = useState<number>(lobs[0]?.id ?? 0);
+  const [agentId, setAgentId] = useState<number>(agents[0]?.id ?? 0);
+  const [lobId, setLobId] = useState<number>(agents[0]?.lobId ?? lobs[0]?.id ?? 0);
   const [coachId, setCoachId] = useState<number | null>(null);
   const [evaluatorId, setEvaluatorId] = useState<number | null>(null);
   const [teamLeadId, setTeamLeadId] = useState<number | null>(null);
-  const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   function reset() {
-    setEmployeeCode("");
-    setEmployeeName("");
-    setEmployeeEmail("");
-    setHireDate("");
-    setLobId(lobs[0]?.id ?? 0);
+    setAgentId(agents[0]?.id ?? 0);
+    setLobId(agents[0]?.lobId ?? lobs[0]?.id ?? 0);
     setCoachId(null);
     setEvaluatorId(null);
     setTeamLeadId(null);
-    setStatus("ACTIVE");
     setErrors({});
   }
 
   // Builds the agent payload, saves it, and closes the modal on success.
   async function handleSave() {
-    const parsed = newEmployeeSchema.safeParse({
-      employeeCode: employeeCode.trim(),
-      employeeName: employeeName.trim(),
-      employeeEmail: employeeEmail.trim(),
-      hireDate,
-      status,
-    });
-
     const nextErrors: Record<string, string> = {};
 
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) {
-        const field = issue.path[0]?.toString() ?? "form";
-        if (!nextErrors[field]) {
-          nextErrors[field] = issue.message;
-        }
-      }
+    if (agentId <= 0 || !agents.some((agent) => agent.id === agentId)) {
+      nextErrors.agentId = "Select an agent";
     }
 
     // A valid LOB must be selected before saving.
@@ -114,13 +91,8 @@ export default function AddAgentModal({
 
     try {
       const result = await onSave({
-        agent: {
-          employeeCode: employeeCode.trim(),
-          employeeName: employeeName.trim(),
-          employeeEmail: employeeEmail.trim(),
-          hireDate,
-          status,
-        },
+        assignmentId: agents.find((agent) => agent.id === agentId)?.assignmentId,
+        agentId,
         lobId,
         coachId,
         evaluatorId,
@@ -157,8 +129,6 @@ export default function AddAgentModal({
 
   if (!open) return null;
 
-  const personOptions = [{ id: 0, name: "Unassigned" }, ...people];
-
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
       <div
@@ -171,7 +141,7 @@ export default function AddAgentModal({
             <span className={`grid h-9 w-9 place-items-center rounded-lg ${a.bgLight}`}>
               <UserPlus size={18} className={a.text} />
             </span>
-            Add New Agent
+            Assign Existing Agent
           </h2>
           <button
             onClick={onClose}
@@ -182,64 +152,23 @@ export default function AddAgentModal({
         </div>
 
         <div className="px-6 py-5">
+          {agents.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border-default bg-surface-raised px-4 py-5 text-[13px] text-text-secondary">
+              All account agents already have a QA coach or evaluator. Add the employee from Employee Management first if needed.
+            </div>
+          ) : (
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Employee code" error={errors.employeeCode}>
-              <input
-                type="text"
-                value={employeeCode}
-                onChange={(e) => {
-                  setEmployeeCode(e.target.value);
-                  clearError("employeeCode");
+            <Field label="Agent" error={errors.agentId}>
+              <SelectField
+                value={agentId}
+                onChange={(value) => {
+                  const selectedAgent = agents.find((agent) => agent.id === Number(value));
+                  setAgentId(Number(value));
+                  if (selectedAgent?.lobId) setLobId(selectedAgent.lobId);
+                  clearError("agentId");
                 }}
-                placeholder="Enter employee code"
-                className={`w-full rounded-lg border bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:ring-1 ${
-                  errors.employeeCode
-                    ? "border-brand-crimson focus:border-brand-crimson focus:ring-brand-crimson"
-                    : "border-border-default focus:border-border-accent focus:ring-border-accent"
-                }`}
-              />
-            </Field>
-
-            <Field label="Employee Name" error={errors.employeeName}>
-              <input
-                type="text"
-                value={employeeName}
-                onChange={(e) => {
-                  setEmployeeName(e.target.value);
-                  clearError("employeeName");
-                }}
-                placeholder="Enter full name"
-                className={`w-full rounded-lg border bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:ring-1 ${
-                  errors.employeeName
-                    ? "border-brand-crimson focus:border-brand-crimson focus:ring-brand-crimson"
-                    : "border-border-default focus:border-border-accent focus:ring-border-accent"
-                }`}
-              />
-            </Field>
-
-            <Field label="Employee Email" error={errors.employeeEmail}>
-              <input
-                type="email"
-                value={employeeEmail}
-                onChange={(e) => {
-                  setEmployeeEmail(e.target.value);
-                  clearError("employeeEmail");
-                }}
-                placeholder="Enter email address"
-                className={`w-full rounded-lg border bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition placeholder:text-text-muted/60 focus:ring-1 ${
-                  errors.employeeEmail
-                    ? "border-brand-crimson focus:border-brand-crimson focus:ring-brand-crimson"
-                    : "border-border-default focus:border-border-accent focus:ring-border-accent"
-                }`}
-              />
-            </Field>
-
-            <Field label="Hire Date">
-              <input
-                type="date"
-                value={hireDate}
-                onChange={(e) => setHireDate(e.target.value)}
-                className="w-full rounded-lg border border-border-default bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition focus:border-border-accent focus:ring-1 focus:ring-border-accent"
+                options={agents}
+                hasError={Boolean(errors.agentId)}
               />
             </Field>
 
@@ -256,18 +185,14 @@ export default function AddAgentModal({
             </Field>
 
             <Field label="QA Coach">
-              <SelectField
-                value={coachId ?? 0}
-                onChange={(v) => setCoachId(Number(v) || null)}
-                options={personOptions}
-              />
+              <SelectField value={coachId ?? 0} onChange={(v) => setCoachId(Number(v) || null)} options={[{ id: 0, name: "Unassigned" }, ...coaches]} />
             </Field>
 
             <Field label="QA Evaluator">
               <SelectField
                 value={evaluatorId ?? 0}
                 onChange={(v) => setEvaluatorId(Number(v) || null)}
-                options={personOptions}
+                options={[{ id: 0, name: "Unassigned" }, ...evaluators]}
               />
             </Field>
 
@@ -275,21 +200,12 @@ export default function AddAgentModal({
               <SelectField
                 value={teamLeadId ?? 0}
                 onChange={(v) => setTeamLeadId(Number(v) || null)}
-                options={teamLeads}
+                options={[{ id: 0, name: "Unassigned" }, ...teamLeads]}
               />
             </Field>
 
-            <Field label="Status">
-              <SelectField
-                value={status}
-                onChange={(v) => setStatus(v as "ACTIVE" | "INACTIVE")}
-                options={[
-                  { id: "ACTIVE", name: "ACTIVE" },
-                  { id: "INACTIVE", name: "INACTIVE" },
-                ]}
-              />
-            </Field>
           </div>
+          )}
 
           {Object.keys(errors).length > 0 && (
             <div className="mt-4 flex items-start gap-2 rounded-lg border border-brand-crimson/30 bg-brand-crimson/10 px-3 py-2.5 text-[12px] font-medium text-brand-crimson">
@@ -315,13 +231,13 @@ export default function AddAgentModal({
           >
             Cancel
           </button>
-          <button
+  <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || agents.length === 0}
             className={`inline-flex items-center gap-2 rounded-lg ${a.bg} px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:opacity-60`}
           >
             <Save size={14} />
-            {saving ? "Saving..." : "Save Agent"}
+            {saving ? "Saving..." : "Assign Agent"}
           </button>
         </div>
       </div>

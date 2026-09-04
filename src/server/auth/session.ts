@@ -13,6 +13,7 @@ type EmployeeRecord = {
   employee_code: string | null;
   employee_name: string | null;
   employee_email: string | null;
+  role_id: number | null;
   avatar_url: string | null;
 };
 
@@ -44,7 +45,7 @@ export async function resolveAuthenticatedEmployee(
   const admin = createAdminClient();
   const { data: employee, error: employeeError } = await admin
     .from("employees")
-    .select("id, employee_code, employee_name, employee_email, avatar_url")
+    .select("id, employee_code, employee_name, employee_email, role_id, avatar_url")
     .ilike("employee_email", email)
     .maybeSingle();
 
@@ -62,8 +63,41 @@ export async function resolveAuthenticatedEmployee(
     `)
     .eq("employee_id", employee.id);
 
-  if (assignmentError || !assignments?.length) {
+  if (assignmentError) {
     return null;
+  }
+
+  // Employees may log in before their first account-level assignment. Use the
+  // first account only as temporary navigation context; permissions still
+  // determine which actions they can perform.
+  if (!assignments?.length && employee.role_id != null) {
+    const [{ data: role }, { data: primaryAccount }] = await Promise.all([
+      admin.from("roles").select("role_name").eq("role_id", employee.role_id).maybeSingle(),
+      admin.from("accounts").select("account_code, account_name").order("account_code", { ascending: true }).limit(1).maybeSingle(),
+    ]);
+    const roleName = role?.role_name ?? "";
+    const normalizedRole = normalizeRole(roleName);
+    const account = primaryAccount as AccountRow | null;
+    if (normalizedRole && account?.account_code && account.account_name) {
+      return {
+        auth_user_id: authUserId,
+        employee_id: employee.id,
+        employee_name: employee.employee_name ?? "",
+        employee_email: employee.employee_email ?? "",
+        employee_code: employee.employee_code ?? "",
+        avatar_url: employee.avatar_url ?? undefined,
+        account: account.account_code.toUpperCase() as AccountLabel,
+        account_name: account.account_name,
+        role: normalizedRole,
+        role_name: roleName,
+        accounts: [{
+          account: account.account_code.toUpperCase() as AccountLabel,
+          account_name: account.account_name,
+          role: normalizedRole,
+          role_name: roleName,
+        }],
+      } as AuthUser;
+    }
   }
 
   const accountAssignments: AccountAssignment[] = [];

@@ -10,7 +10,9 @@ import { enforceRateLimit } from "@/server/security/rate-limit";
 import { assertTrustedOrigin } from "@/server/security/origin";
 import { auditLog } from "@/server/audit";
 import { ValidationError, AuthorizationError } from "@/server/security/errors";
+import { getRolePermissions } from "@/server/authorization/permissions";
 import { accountParamSchema } from "@/lib/validation";
+import { notifyAllEmployees } from "@/server/notifications";
 
 export async function POST(
   request: NextRequest,
@@ -29,14 +31,14 @@ export async function POST(
     const user = await requireUser();
     const normalized = account.trim().toUpperCase();
     const assignment = user.accounts.find((entry) => entry.account === normalized);
-    const isManager = ["admin", "account_manager", "quality_coordinator", "qa_supervisor"].includes(user.role);
+    const isManager = ["admin", "account_manager", "quality_coordinator", "qa_supervisor", "qa"].includes(user.role);
 
     if (!assignment && !isManager) {
       throw new AuthorizationError("You do not have access to this account");
     }
 
     // Only users with assignments:manage permission can modify assignments.
-    if (!["admin", "account_manager", "quality_coordinator", "qa_supervisor"].includes(user.role)) {
+    if (!getRolePermissions(user.role).has("assignments:manage")) {
       throw new AuthorizationError("You do not have permission to manage assignments");
     }
 
@@ -63,6 +65,11 @@ export async function POST(
         evaluatorId: r.evaluatorId ?? null,
         teamLeadId: r.teamLeadId ?? null,
       }))
+    );
+
+    await notifyAllEmployees(
+      "QA assignment saved",
+      `${saved.length} QA assignment${saved.length === 1 ? "" : "s"} saved for ${normalized}.`,
     );
 
     auditLog("assignments.saved", {

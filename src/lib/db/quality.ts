@@ -18,7 +18,14 @@ export async function getAccountIdByCode(accountCode: string): Promise<number | 
     .select("account_id")
     .ilike("account_code", accountCode)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) {
+    console.error("[assignments] getAccountIdByCode query error:", error.message);
+    return null;
+  }
+  if (!data) {
+    console.error("[assignments] getAccountIdByCode: no account found for code:", accountCode);
+    return null;
+  }
   return data.account_id;
 }
 

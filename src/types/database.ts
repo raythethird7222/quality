@@ -18,6 +18,7 @@ export interface Database {
           employee_code: string | null;
           employee_name: string | null;
           employee_email: string | null;
+          role_id: number | null;
           status_id: number | null;
           hire_date: string | null;
           vici_link: string | null;
@@ -28,6 +29,7 @@ export interface Database {
           employee_code?: string | null;
           employee_name?: string | null;
           employee_email?: string | null;
+          role_id?: number | null;
           status_id?: number | null;
           hire_date?: string | null;
           vici_link?: string | null;
@@ -38,10 +40,38 @@ export interface Database {
           employee_code?: string | null;
           employee_name?: string | null;
           employee_email?: string | null;
+          role_id?: number | null;
           status_id?: number | null;
           hire_date?: string | null;
           vici_link?: string | null;
           avatar_url?: string | null;
+        };
+        Relationships: [];
+      };
+      notifications: {
+        Row: {
+          notification_id: number;
+          recipient_employee_id: number;
+          title: string;
+          description: string | null;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          notification_id?: number;
+          recipient_employee_id: number;
+          title: string;
+          description?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          notification_id?: number;
+          recipient_employee_id?: number;
+          title?: string;
+          description?: string | null;
+          read_at?: string | null;
+          created_at?: string;
         };
         Relationships: [];
       };

@@ -3,7 +3,8 @@
 // QA assignment settings page: search, filter, edit, bulk-edit, and add agents,
 // persisting changes to the database through the assignments API route.
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createBrowserClient } from "@/lib/supabase/client";
 import {
   ChevronLeft,
   ChevronDown,
@@ -23,15 +24,15 @@ import { getAccentColors } from "@/features/accounts/config";
 import { useAccent } from "@/features/settings/useAccent";
 import { assignmentPayloadSchema } from "@/features/assignments/validation";
 import Pagination, { paginate } from "@/components/ui/pagination";
-import type { IdNameOption } from "@/lib/db/assignments";
+import type { AvailableAgentOption, IdNameOption } from "@/lib/db/assignments";
 
 // Props for the assignment settings page component.
 type AssignmentSettingsViewProps = {
-  people: IdNameOption[];
   lobs: IdNameOption[];
   teamLeads: IdNameOption[];
   evaluators: IdNameOption[];
   coaches: IdNameOption[];
+  availableAgents: AvailableAgentOption[];
   initialAgents: AgentRow[];
   account: string;
 };
@@ -46,19 +47,17 @@ type AgentRow = {
   evaluatorId: number | null;
   teamLeadId: number | null;
   status: string;
-  isNew?: boolean;
-  agent?: NewAgentPayload["agent"];
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 // Assignment settings page: manages agent table state, filtering, and saving.
 export default function AssignmentSettingsView({
-  people,
   lobs,
   teamLeads,
   evaluators,
   coaches,
+  availableAgents,
   initialAgents,
   account,
 }: AssignmentSettingsViewProps) {
@@ -81,24 +80,27 @@ export default function AssignmentSettingsView({
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
+  useEffect(() => {
+    const client = createBrowserClient();
+    const channel = client
+      .channel(`account-assignments-${account}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "agent_assignments" }, () => window.location.reload())
+      .on("postgres_changes", { event: "*", schema: "public", table: "employee_assignments" }, () => window.location.reload())
+      .subscribe();
+    return () => { void client.removeChannel(channel); };
+  }, [account]);
+
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const displayName = (row: AgentRow) =>
-    row.name || row.agent?.employeeName || "NEW AGENT";
+  const displayName = (row: AgentRow) => row.name || "Unnamed agent";
 
   // ------------------------------------------------------------
   // OPTIONS
   // ------------------------------------------------------------
 
-  // QA / general people options.
-  const personOptions = useMemo(
-    () => [{ id: 0, name: "Unassigned" }, ...people],
-    [people]
-  );
-
   // IMPORTANT:
-  // Team Lead dropdown MUST use teamLeads instead of people.
+  // Team Lead dropdown uses only employees with the team lead role.
   // This ensures only actual TLs are selectable.
   const teamLeadOptions = useMemo(
     () => [{ id: 0, name: "Unassigned" }, ...teamLeads],
@@ -249,7 +251,8 @@ export default function AssignmentSettingsView({
     payload: NewAgentPayload
   ): Promise<{ ok: boolean; error?: string }> {
     const row = {
-      agent: payload.agent,
+      assignmentId: payload.assignmentId,
+      agentId: payload.agentId,
       lobId: payload.lobId,
       coachId: payload.coachId,
       evaluatorId: payload.evaluatorId,
@@ -294,15 +297,14 @@ export default function AssignmentSettingsView({
       setAgents((prev) => [
         ...prev,
         {
-          assignmentId: saved?.assignmentId,
-          agentId: saved?.agentId,
-          name: saved?.name ?? payload.agent.employeeName,
+          assignmentId: saved?.assignmentId ?? payload.assignmentId,
+          agentId: saved?.agentId ?? payload.agentId,
+          name: saved?.name ?? availableAgents.find((agent) => agent.id === payload.agentId)?.name ?? "Unnamed agent",
           lobId: payload.lobId,
           coachId: payload.coachId,
           evaluatorId: payload.evaluatorId,
           teamLeadId: payload.teamLeadId,
-          status: payload.agent.status,
-          isNew: false,
+          status: "ACTIVE",
         },
       ]);
 
@@ -326,13 +328,7 @@ export default function AssignmentSettingsView({
     const payload = agents.map((agent) => ({
       assignmentId: agent.assignmentId,
 
-      agentId: agent.isNew
-        ? undefined
-        : agent.agentId,
-
-      agent: agent.isNew
-        ? agent.agent
-        : undefined,
+      agentId: agent.agentId,
 
       lobId: agent.lobId,
       coachId: agent.coachId,
@@ -405,18 +401,8 @@ export default function AssignmentSettingsView({
 
             assignmentId: s.assignmentId,
 
-            agentId: agent.isNew
-              ? s.agentId
-              : agent.agentId,
-
-            name:
-              agent.isNew && s.name
-                ? s.name
-                : agent.name,
-
-            isNew: false,
-
-            agent: undefined,
+            agentId: s.agentId ?? agent.agentId,
+            name: s.name || agent.name,
           };
         })
       );
@@ -434,7 +420,7 @@ export default function AssignmentSettingsView({
 
   return (
     <div className="min-h-full bg-surface-base text-text-primary">
-      <div className="mx-auto max-w-[1440px] px-6 py-5 md:px-9">
+      <div className="w-full px-6 py-5 md:px-9">
 
         {/* ---------------------------------------------------- */}
         {/* BACK */}
@@ -968,8 +954,10 @@ export default function AssignmentSettingsView({
         }
         onSave={addAgent}
         accent={selectedAccent}
-        people={people}
+        agents={availableAgents}
         lobs={lobs}
+        coaches={coaches}
+        evaluators={evaluators}
         teamLeads={teamLeads}
       />
     </div>
