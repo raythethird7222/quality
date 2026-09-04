@@ -8,6 +8,9 @@ import { isManagerRole } from "@/lib/db/helpers";
 import type { UserRole } from "@/types";
 import CreateAccountView from "@/features/accounts-management/components/CreateAccountView";
 
+// This route requires authenticated request-time Supabase data.
+export const dynamic = "force-dynamic";
+
 // Roles allowed to view/create accounts on this page.
 const ALLOWED_ROLES: UserRole[] = [
   "admin",
