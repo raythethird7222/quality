@@ -35,17 +35,11 @@ export function isParameterAccount(accountCode: string): boolean {
   return PARAMETER_ACCOUNT_CODES.includes(accountCode.trim().toUpperCase() as (typeof PARAMETER_ACCOUNT_CODES)[number]);
 }
 
-export function getParameterTable(accountCode: string) {
-  switch (accountCode.trim().toUpperCase()) {
-    case "JS":
-      return "evaluation_param_js";
-    case "DFT":
-      return "evaluation_param_dft";
-    case "COVA":
-      return "evaluation_param_cova";
-    default:
-      return "evaluation_param_rm";
-  }
+export function getParameterTable(_accountCode: string) {
+  // All supported account checklists now live in one shared table. The
+  // account code is still accepted here so existing callers remain stable.
+  void _accountCode;
+  return "evaluation_parameters";
 }
 
 // Returns all employee statuses ordered by name.

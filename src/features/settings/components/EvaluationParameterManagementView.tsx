@@ -54,10 +54,14 @@ export default function EvaluationParameterManagementView({
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
   const [editing, setEditing] = useState<Parameter | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [targetAccount, setTargetAccount] = useState("");
+  const [targetLobId, setTargetLobId] = useState("");
   const [parameterPage, setParameterPage] = useState(1);
   const [parameterPageSize, setParameterPageSize] = useState(20);
 
   const accountLobs = lobs[account] ?? [];
+  const targetLobs = lobs[targetAccount] ?? [];
+  const targetLob = targetLobs.find((item) => String(item.id) === targetLobId);
 
   useEffect(() => {
     if (!account) return;
@@ -89,12 +93,18 @@ export default function EvaluationParameterManagementView({
 
   function openAdd() {
     setEditing(null);
-    setForm({ ...emptyForm, lob_id: lobId ? Number(lobId) : null, display_order: parameters.length + 1 });
+    const initialAccount = account || accounts[0]?.account_code || "";
+    const initialLobId = lobId || (lobs[initialAccount]?.[0] ? String(lobs[initialAccount][0].id) : "");
+    setTargetAccount(initialAccount);
+    setTargetLobId(initialLobId);
+    setForm({ ...emptyForm, lob_id: initialLobId ? Number(initialLobId) : null, display_order: parameters.length + 1 });
     setModal("add");
   }
 
   function openEdit(parameter: Parameter) {
     setEditing(parameter);
+    setTargetAccount(account);
+    setTargetLobId(parameter.lob_id == null ? lobId : String(parameter.lob_id));
     setForm({
       guideline: parameter.guideline ?? "",
       attributes: parameter.attributes ?? "",
@@ -110,17 +120,21 @@ export default function EvaluationParameterManagementView({
   }
 
   async function save() {
-    const response = await fetch(`/api/evaluation-parameters/${account}`, {
+    const saveAccount = editing ? account : targetAccount;
+    const saveLobId = editing ? form.lob_id : Number(targetLobId);
+    if (!saveAccount || !saveLobId) throw new Error("Select an account and LOB before saving");
+    const response = await fetch(`/api/evaluation-parameters/${saveAccount}`, {
       method: modal === "edit" ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, id: editing?.id, lob_id: Number(form.lob_id) }),
+      body: JSON.stringify({ ...form, id: editing?.id, lob_id: saveLobId }),
     });
     const json = await response.json();
     if (!response.ok) throw new Error(json.error ?? "Unable to save parameter");
     setModal(null);
     showToast("success", "Evaluation parameter saved");
-    setLobId(String(form.lob_id));
-    const refreshed = await fetch(`/api/evaluation-parameters/${account}?lobId=${form.lob_id}`);
+    setAccount(saveAccount);
+    setLobId(String(saveLobId));
+    const refreshed = await fetch(`/api/evaluation-parameters/${saveAccount}?lobId=${saveLobId}`);
     setParameters((await refreshed.json()).parameters ?? []);
   }
 
@@ -143,7 +157,7 @@ export default function EvaluationParameterManagementView({
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand-indigo/10 text-brand-indigo ring-1 ring-inset ring-current/20"><ClipboardList className="h-6 w-6" /></span>
             <div><p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-brand-indigo">QA Supervisor Workspace</p><h1 className="mt-1 text-[28px] font-bold tracking-tight sm:text-[32px]">Evaluation Parameters</h1><p className="mt-1 max-w-2xl text-[13px] leading-5 text-text-secondary">Manage the checklist used by each account and LOB in one place.</p></div>
           </div>
-          <button onClick={openAdd} className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-indigo px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:opacity-90"><Plus className="h-4 w-4" /> Add parameter</button>
+          <button onClick={openAdd} disabled={accounts.length === 0} className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-indigo px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" /> Add parameter</button>
         </div>
       </header>
       <section className="mt-5 rounded-2xl border border-border-default bg-card p-4 shadow-sm md:p-5">
@@ -176,7 +190,7 @@ export default function EvaluationParameterManagementView({
         <div className="overflow-x-auto rounded-xl border border-border-subtle"><table className="w-full min-w-[980px] border-collapse text-left"><thead className="bg-surface-raised"><tr className="border-b border-border-subtle"><th className="whitespace-nowrap px-4 py-3.5 text-[11px] font-bold uppercase tracking-wider text-text-secondary">Order</th><th className="whitespace-nowrap px-4 py-3.5 text-[11px] font-bold uppercase tracking-wider text-text-secondary">Guideline</th><th className="whitespace-nowrap px-4 py-3.5 text-[11px] font-bold uppercase tracking-wider text-text-secondary">Attribute</th><th className="whitespace-nowrap px-4 py-3.5 text-[11px] font-bold uppercase tracking-wider text-text-secondary">Clause</th><th className="whitespace-nowrap px-4 py-3.5 text-[11px] font-bold uppercase tracking-wider text-text-secondary">Score</th><th className="whitespace-nowrap px-4 py-3.5 text-[11px] font-bold uppercase tracking-wider text-text-secondary">Status</th><th className="whitespace-nowrap px-4 py-3.5 text-right text-[11px] font-bold uppercase tracking-wider text-text-secondary">Actions</th></tr></thead><tbody className="divide-y divide-border-subtle">{paginate(parameters, parameterPage, parameterPageSize).map((parameter) => <tr key={parameter.id} className="hover:bg-surface-raised/50"><td className="px-4 py-3 text-text-secondary">{parameter.display_order}</td><td className="px-4 py-3 font-semibold">{parameter.guideline}</td><td className="px-4 py-3">{parameter.attributes}</td><td className="px-4 py-3">{parameter.clauses}</td><td className="px-4 py-3">{parameter.score}</td><td className="px-4 py-3">{parameter.is_active ? "Active" : "Inactive"}</td><td className="px-4 py-3 text-right"><button type="button" onClick={() => openEdit(parameter)} className="mr-2 rounded-md p-2 text-brand-indigo hover:bg-brand-indigo/10" aria-label={`Edit ${parameter.clauses}`}><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => remove(parameter)} className="rounded-md p-2 text-brand-crimson hover:bg-brand-crimson/10" aria-label={`Delete ${parameter.clauses}`}><Trash2 className="h-4 w-4" /></button></td></tr>)}</tbody></table>{!loading && parameters.length === 0 && <div className="p-12 text-center text-[13px] text-text-muted">No parameters match the selected account and LOB.</div>}</div>
         <Pagination currentPage={parameterPage} pageSize={parameterPageSize} totalItems={parameters.length} onPageChange={setParameterPage} onPageSizeChange={(size) => { setParameterPageSize(size); setParameterPage(1); }} className="mt-3 rounded-lg border border-border-subtle bg-surface-raised/50" />
       </section>
-      {modal && <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"><div className="w-full max-w-2xl rounded-2xl border border-border-default bg-card shadow-xl"><div className="flex items-center justify-between border-b border-border-subtle p-5"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary">{modal === "edit" ? "Edit parameter" : "New parameter"}</p><h2 className="mt-1 text-xl font-bold">Checklist item</h2></div><button onClick={() => setModal(null)} aria-label="Close"><X /></button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><Field label="Guideline" value={form.guideline ?? ""} onChange={(value) => setForm({ ...form, guideline: value })} /><Field label="Attribute" value={form.attributes ?? ""} onChange={(value) => setForm({ ...form, attributes: value })} /><Field label="Clause" value={form.clauses ?? ""} onChange={(value) => setForm({ ...form, clauses: value })} /><Field label="Score" type="number" value={String(form.score ?? "")} onChange={(value) => setForm({ ...form, score: Number(value) })} /><Field label="Display order" type="number" value={String(form.display_order ?? "")} onChange={(value) => setForm({ ...form, display_order: Number(value) })} /><label className="grid gap-1 text-sm font-medium">Compound<select value={form.compound ?? "NO"} onChange={(e) => setForm({ ...form, compound: e.target.value })} className="rounded-lg border border-border-default bg-surface-overlay px-3 py-2"><option>NO</option><option>YES</option></select></label><label className="grid gap-1 text-sm font-medium sm:col-span-2">Description<textarea value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={4} className="rounded-lg border border-border-default bg-surface-overlay px-3 py-2" /></label></div><div className="flex justify-end gap-3 border-t border-border-subtle p-5"><button onClick={() => setModal(null)} className="rounded-lg border border-border-default px-4 py-2 text-sm">Cancel</button><button onClick={() => save().catch((error) => showToast("error", error.message))} className="rounded-lg bg-brand-indigo px-4 py-2 text-sm font-semibold text-white">Save parameter</button></div></div></div>}
+      {modal && <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"><div className="w-full max-w-2xl rounded-2xl border border-border-default bg-card shadow-xl"><div className="flex items-center justify-between border-b border-border-subtle p-5"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary">{modal === "edit" ? "Edit parameter" : "New parameter"}</p><h2 className="mt-1 text-xl font-bold">Checklist item</h2></div><button onClick={() => setModal(null)} aria-label="Close"><X /></button></div><div className="grid gap-4 border-b border-border-subtle bg-surface-raised/50 px-5 py-4 sm:grid-cols-2"><label className="grid gap-1 text-sm font-medium">Account<select value={targetAccount} disabled={modal === "edit"} onChange={(e) => { const nextAccount = e.target.value; const nextLobId = lobs[nextAccount]?.[0] ? String(lobs[nextAccount][0].id) : ""; setTargetAccount(nextAccount); setTargetLobId(nextLobId); setForm({ ...form, lob_id: nextLobId ? Number(nextLobId) : null }); }} className="rounded-lg border border-border-default bg-surface-overlay px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70">{accounts.map((item) => <option key={item.account_id} value={item.account_code}>{item.account_code} · {item.account_name}</option>)}</select></label><label className="grid gap-1 text-sm font-medium">LOB<select value={targetLobId} disabled={modal === "edit"} onChange={(e) => { setTargetLobId(e.target.value); setForm({ ...form, lob_id: Number(e.target.value) }); }} className="rounded-lg border border-border-default bg-surface-overlay px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70"><option value="">Select LOB</option>{targetLobs.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><p className="text-xs text-text-secondary sm:col-span-2">{modal === "edit" ? `This parameter belongs to ${targetAccount} · ${targetLob?.name ?? "selected LOB"}.` : `This parameter will be added to ${targetAccount || "the selected account"} · ${targetLob?.name ?? "the selected LOB"}.`}</p></div><div className="grid gap-4 p-5 sm:grid-cols-2"><Field label="Guideline" value={form.guideline ?? ""} onChange={(value) => setForm({ ...form, guideline: value })} /><Field label="Attribute" value={form.attributes ?? ""} onChange={(value) => setForm({ ...form, attributes: value })} /><Field label="Clause" value={form.clauses ?? ""} onChange={(value) => setForm({ ...form, clauses: value })} /><Field label="Score" type="number" value={String(form.score ?? "")} onChange={(value) => setForm({ ...form, score: Number(value) })} /><Field label="Display order" type="number" value={String(form.display_order ?? "")} onChange={(value) => setForm({ ...form, display_order: Number(value) })} /><label className="grid gap-1 text-sm font-medium">Compound<select value={form.compound ?? "NO"} onChange={(e) => setForm({ ...form, compound: e.target.value })} className="rounded-lg border border-border-default bg-surface-overlay px-3 py-2"><option>NO</option><option>YES</option></select></label><label className="grid gap-1 text-sm font-medium sm:col-span-2">Description<textarea placeholder="Explain what the evaluator should check..." value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={4} className="rounded-lg border border-border-default bg-surface-overlay px-3 py-2" /></label></div><div className="flex justify-end gap-3 border-t border-border-subtle p-5"><button onClick={() => setModal(null)} className="rounded-lg border border-border-default px-4 py-2 text-sm">Cancel</button><button onClick={() => save().catch((error) => showToast("error", error.message))} className="rounded-lg bg-brand-indigo px-4 py-2 text-sm font-semibold text-white">Save parameter</button></div></div></div>}
     </div>
   );
 }
