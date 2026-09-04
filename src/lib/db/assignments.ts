@@ -532,11 +532,8 @@ export async function persistAgentAssignments(
       throw new Error("Each assignment must reference an agent");
     }
 
-    if (!row.agent && agentEmployeeId != null && !validEmployeeIds.has(agentEmployeeId)) {
-      throw new Error("Agent is not assigned to this account");
-    }
     if (!row.agent && agentEmployeeId != null && !validAgentIds.has(agentEmployeeId)) {
-      throw new Error("Selected employee is not an agent in this account");
+      throw new Error("Selected employee is not an available Agent");
     }
     if (!row.agent && !row.assignmentId) {
       const existing = existingAgentAssignments?.find(

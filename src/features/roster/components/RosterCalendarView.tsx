@@ -37,6 +37,11 @@ const months = [
   "December",
 ];
 
+// Identifies a perfect evaluation score for the calendar highlight treatment.
+function isPerfectScore(score: string): boolean {
+  return Number.parseFloat(score) === 100;
+}
+
 // Main roster calendar view: header, month grid, legend, and day popup.
 export default function RosterCalendarView({
   account,
@@ -48,7 +53,7 @@ export default function RosterCalendarView({
   // Index of the displayed month (0=Jan ... 11=Dec); starts on current month.
   const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
   // Year shown by the calendar.
-  const [currentYear] = useState(() => new Date().getFullYear());
+  const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
   // Day number for the open detail popup, or null when closed.
   const [popupDay, setPopupDay] = useState<number | null>(null);
   // Live evaluations state — updated via Supabase Realtime.
@@ -77,7 +82,32 @@ export default function RosterCalendarView({
         fetch(`/api/evaluations?account=${account}&agent=${slugToDisplayName(personName)}`)
           .then((res) => res.json())
           .then((data) => {
-            if (data.evaluations) setEvaluations(data.evaluations);
+            if (Array.isArray(data.evaluations)) {
+              // Normalize the period API's camelCase response to the
+              // database-shaped model used by the calendar.
+              setEvaluations(
+                data.evaluations.map((evaluation: {
+                  evaluation_id?: number;
+                  evaluationId?: number;
+                  evaluation_date?: string | null;
+                  evaluationDate?: string | null;
+                  qa_score?: number | null;
+                  qaScore?: number | null;
+                  guideline?: string | null;
+                  lob_id?: number | null;
+                  agent_employee_id?: number | null;
+                  checkbox_results?: Record<string, boolean> | null;
+                }) => ({
+                  evaluation_id: evaluation.evaluation_id ?? evaluation.evaluationId ?? 0,
+                  evaluation_date: evaluation.evaluation_date ?? evaluation.evaluationDate ?? null,
+                  qa_score: evaluation.qa_score ?? evaluation.qaScore ?? null,
+                  guideline: evaluation.guideline ?? null,
+                  lob_id: evaluation.lob_id ?? null,
+                  agent_employee_id: evaluation.agent_employee_id ?? null,
+                  checkbox_results: evaluation.checkbox_results ?? null,
+                }))
+              );
+            }
           })
           .catch(console.error);
       }, 300);
@@ -214,9 +244,11 @@ export default function RosterCalendarView({
           {/* Month Header */}
           <div className={`flex items-center justify-between border-b border-border-subtle bg-surface-raised/50 px-6 py-4`}>
             <button
-              onClick={() =>
-                setCurrentMonth((m) => (m === 0 ? 11 : m - 1))
-              }
+              onClick={() => {
+                const next = new Date(currentYear, currentMonth - 1, 1);
+                setCurrentMonth(next.getMonth());
+                setCurrentYear(next.getFullYear());
+              }}
               className={`flex h-9 w-9 items-center justify-center rounded-lg border ${a.border} bg-card text-text-muted transition ${a.hoverBg} hover:text-text-primary hover:shadow-sm`}
             >
               <ChevronLeft size={16} />
@@ -230,9 +262,11 @@ export default function RosterCalendarView({
               </span>
             </div>
             <button
-              onClick={() =>
-                setCurrentMonth((m) => (m === 11 ? 0 : m + 1))
-              }
+              onClick={() => {
+                const next = new Date(currentYear, currentMonth + 1, 1);
+                setCurrentMonth(next.getMonth());
+                setCurrentYear(next.getFullYear());
+              }}
               className={`flex h-9 w-9 items-center justify-center rounded-lg border ${a.border} bg-card text-text-muted transition ${a.hoverBg} hover:text-text-primary hover:shadow-sm`}
             >
               <ChevronRight size={16} />
@@ -324,7 +358,11 @@ export default function RosterCalendarView({
                   {hasEvaluation && detail && (
                     <div className="mt-auto">
                       <span
-                        className={`text-[11px] font-bold ${a.text}`}
+                        className={`inline-flex rounded-md px-2 py-1 text-[11px] font-bold ${
+                          isPerfectScore(detail.score)
+                            ? "bg-emerald-500/15 text-emerald-400"
+                            : `${a.bgLight} ${a.text}`
+                        }`}
                       >
                         {detail.score}
                       </span>
@@ -407,7 +445,11 @@ export default function RosterCalendarView({
                               />
                               <div className="min-w-0">
                                 <div
-                                  className={`text-[14px] font-bold ${a.text}`}
+                                  className={`inline-flex rounded-md px-2 py-1 text-[14px] font-bold ${
+                                    isPerfectScore(ev.score)
+                                      ? "bg-emerald-500/15 text-emerald-400"
+                                      : `${a.bgLight} ${a.text}`
+                                  }`}
                                 >
                                   {ev.score}
                                 </div>

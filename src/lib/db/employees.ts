@@ -936,7 +936,7 @@ export type DashboardOverview = {
  */
 export async function getDashboardOverview(
   user: AuthUser,
-  timeframe: DashboardTimeframe = "Daily",
+  timeframe: DashboardTimeframe = "Monthly",
   anchorDate = new Date().toISOString().slice(0, 10)
 ): Promise<DashboardOverview> {
     const isManager =

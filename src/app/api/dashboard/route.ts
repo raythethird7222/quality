@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     await enforceRateLimit("dashboard", 60, 60_000);
 
     const params = {
-      timeframe: request.nextUrl.searchParams.get("timeframe") ?? "",
+      timeframe: request.nextUrl.searchParams.get("timeframe") ?? "Monthly",
       date: request.nextUrl.searchParams.get("date") ?? undefined,
     };
 

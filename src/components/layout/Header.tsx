@@ -40,6 +40,7 @@ export default function Header({
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Ref to the notification trigger button.
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
+  const notificationPanelRef = useRef<HTMLDivElement>(null);
   // Ref to the portal dropdown for outside-click detection.
   const portalMenuRef = useRef<HTMLDivElement>(null);
   // Portal menu position, computed in an effect once the trigger is mounted.
@@ -73,7 +74,12 @@ export default function Header({
       if (open && menuRef.current && !menuRef.current.contains(target) && portalMenuRef.current && !portalMenuRef.current.contains(target)) {
         setOpen(false);
       }
-      if (notificationsOpen && notificationTriggerRef.current && !notificationTriggerRef.current.contains(target)) {
+      if (
+        notificationsOpen &&
+        notificationTriggerRef.current &&
+        !notificationTriggerRef.current.contains(target) &&
+        !notificationPanelRef.current?.contains(target)
+      ) {
         setNotificationsOpen(false);
       }
     }
@@ -246,6 +252,7 @@ export default function Header({
               onClose={() => setNotificationsOpen(false)}
               employeeId={user.employee_id}
               onUnreadCountChange={setUnreadNotifications}
+              panelRef={notificationPanelRef}
             />
           </div>
         </div>

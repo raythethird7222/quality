@@ -49,7 +49,7 @@ export async function getStatuses(): Promise<
 export async function getQaEvaluationsByAccount(accountCode: string) {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("evaluations")
     .select(
@@ -72,9 +72,9 @@ export async function getQaParametersByAccount(
 ) {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
   let query = supabase
-    .from("evaluation_parameters")
+    .from("evaluation_param_rm")
     .select(
       "id, lob_name, guideline, attributes, clauses, score, compound, description, account_id, lob_id, display_order, is_active"
     )
@@ -96,7 +96,7 @@ export async function getQaParametersByAccount(
 }
 
 // Returns the evaluation checklist for an account + guideline from the
-// evaluation_parameters table, active rows ordered by display_order. The
+// evaluation_param_rm table, active rows ordered by display_order. The
 // checklist groups clauses under their attribute code, and the score column
 // is stored as text (e.g. "5") so it is parsed to a number here. When lobId
 // is provided, parameters are further filtered to that LOB.
@@ -107,9 +107,11 @@ export async function getEvaluationParameters(
 ) {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
-  const supabase = await createServerClient();
+  // Evaluation parameters are account configuration. Read them through the
+  // trusted server client so RLS cannot hide the checklist from an evaluator.
+  const supabase = createAdminClient();
   let query = supabase
-    .from("evaluation_parameters")
+    .from("evaluation_param_rm")
     .select(
       "id, lob_name, guideline, attributes, clauses, score, compound, description, account_id, lob_id, display_order, is_active"
     )
@@ -145,7 +147,7 @@ export type ChecklistGroup = {
   clauses: ChecklistClause[];
 };
 
-// Groups fetched evaluation_parameters rows by attribute code. Returns the
+// Groups fetched evaluation_param_rm rows by attribute code. Returns the
 // groups plus the summed score of every clause (all fetched items count).
 export function buildEvaluationChecklist(
   rows: {
@@ -185,12 +187,11 @@ export async function getAgentEmployeeId(
 ): Promise<number | null> {
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return null;
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
   const { data: assignment } = await supabase
     .from("agent_assignments")
     .select("agent_employee_id")
-    .eq("account_id", accountId)
-    .limit(1);
+    .eq("account_id", accountId);
   const agentIds = [...new Set((assignment ?? []).map((row) => row.agent_employee_id))];
   if (agentIds.length === 0) return null;
   const { data: agent } = await supabase
@@ -206,7 +207,9 @@ export async function getAgentEmployeeId(
 export async function getAgentViciLink(
   agentName: string
 ): Promise<string | null> {
-  const supabase = await createServerClient();
+  // The caller and account/assignment scope are resolved above and below;
+  // use the trusted server client so RLS does not hide valid report rows.
+  const supabase = createAdminClient();
   const { data: agent } = await supabase
     .from("employees")
     .select("vici_link")
@@ -238,23 +241,29 @@ export async function createEvaluation(
     input.agentName
   );
   if (!accountId || !agentEmployeeId) return null;
-  const supabase = await createServerClient();
+  // This server-side write runs after the API route has authenticated the
+  // user and verified their role. Use the admin client for the internal
+  // assignment lookup/write so RLS cannot hide a valid evaluator mapping.
+  const supabase = createAdminClient();
 
-  const { data: assignment } = await supabase
+  const { data: assignments } = await supabase
     .from("agent_assignments")
     .select("assignment_id, lob_id, qa_evaluator_employee_id")
     .eq("account_id", accountId)
-    .eq("agent_employee_id", agentEmployeeId)
-    .maybeSingle();
+    .eq("agent_employee_id", agentEmployeeId);
 
-  if (!assignment) {
+  if (!assignments || assignments.length === 0) {
     return null;
   }
 
-  if (
-    assignment.qa_evaluator_employee_id != null &&
-    assignment.qa_evaluator_employee_id !== input.qaEvaluatorEmployeeId
-  ) {
+  // Prefer the row assigned to the current evaluator. If a row has no
+  // evaluator yet, allow the first authorized evaluator to create it.
+  const assignment =
+    assignments.find(
+      (row) => Number(row.qa_evaluator_employee_id) === input.qaEvaluatorEmployeeId
+    ) ?? assignments.find((row) => row.qa_evaluator_employee_id == null);
+
+  if (!assignment) {
     return null;
   }
 
@@ -683,7 +692,7 @@ export async function getAccountEvaluationsForPeriod(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
   let query = supabase
     .from("evaluations")
@@ -773,8 +782,17 @@ export type DashboardChartAnalytics = {
   trendData: { date: string; score: number; count: number }[];
   barData: { defect: string; count: number }[];
   avgScore: number | null;
-  topAgents: { name: string; score: string }[];
-  bottomAgents: { name: string; score: string }[];
+  topAgents: { name: string; score: string; account: string; trend: string }[];
+  bottomAgents: { name: string; score: string; account: string; trend: string }[];
+  recentEvaluations: {
+    evaluationId: number;
+    date: string;
+    agentName: string;
+    account: string;
+    score: string;
+    opportunity: string;
+    notes: string;
+  }[];
 };
 
 export type DashboardTimeframe = "Daily" | "Weekly" | "Monthly";
@@ -817,14 +835,16 @@ export function getDashboardDateRange(
 export async function getDashboardChartAnalytics(
   accountCodes: string[],
   user?: AuthUser,
-  timeframe: DashboardTimeframe = "Daily",
+  timeframe: DashboardTimeframe = "Monthly",
   anchorDate = formatDateKey(new Date())
 ): Promise<DashboardChartAnalytics> {
   if (accountCodes.length === 0) {
-    return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
+    return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [], recentEvaluations: [] };
   }
 
-  const supabase = await createServerClient();
+  // Account and assignment scope is enforced explicitly below. Use the
+  // trusted server client so RLS does not hide evaluation rows from reports.
+  const supabase = createAdminClient();
 
   // Resolve all account ids from the provided codes.
   const { data: accounts, error: accountsError } = await supabase
@@ -835,7 +855,7 @@ export async function getDashboardChartAnalytics(
   if (accountsError) throw accountsError;
 
   if (!accounts || accounts.length === 0) {
-    return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
+    return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [], recentEvaluations: [] };
   }
 
   const accountIds = accounts.map((a) => a.account_id);
@@ -872,7 +892,7 @@ export async function getDashboardChartAnalytics(
   // Fetch only evaluations inside the selected calendar period.
   let query = supabase
     .from("evaluations")
-    .select("evaluation_id, account_id, lob_id, agent_employee_id, qa_score, evaluation_date")
+    .select("evaluation_id, account_id, lob_id, agent_employee_id, qa_score, evaluation_date, opportunities, notes")
     .in("account_id", accountIds)
     .gte("evaluation_date", startDate)
     .lte("evaluation_date", inclusiveEndDate)
@@ -880,7 +900,7 @@ export async function getDashboardChartAnalytics(
 
   if (scopedAgentIds) {
     if (scopedAgentIds.length === 0) {
-      return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
+      return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [], recentEvaluations: [] };
     }
     query = query.in("agent_employee_id", scopedAgentIds);
   }
@@ -889,7 +909,7 @@ export async function getDashboardChartAnalytics(
 
   if (error) throw error;
   if (!data || data.length === 0) {
-    return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [] };
+    return { trendData: [], barData: [], avgScore: null, topAgents: [], bottomAgents: [], recentEvaluations: [] };
   }
 
   const evaluations = data as {
@@ -899,6 +919,8 @@ export async function getDashboardChartAnalytics(
     agent_employee_id: number | null;
     qa_score: number | null;
     evaluation_date: string | null;
+    opportunities: string | null;
+    notes: string | null;
   }[];
 
   // Load LOB names for defect distribution labels.
@@ -958,12 +980,27 @@ export async function getDashboardChartAnalytics(
     .sort((a, b) => b[1] - a[1])
     .map(([defect, count]) => ({ defect, count }));
 
-  const agentScoreMap = new Map<number, { sum: number; count: number }>();
+  const agentScoreMap = new Map<number, {
+    sum: number;
+    count: number;
+    latestScore: number;
+    previousScore: number | null;
+    latestAccountId: number;
+  }>();
   for (const e of scored) {
     if (e.agent_employee_id == null) continue;
-    const cur = agentScoreMap.get(e.agent_employee_id) ?? { sum: 0, count: 0 };
+    const cur = agentScoreMap.get(e.agent_employee_id) ?? {
+      sum: 0,
+      count: 0,
+      latestScore: e.qa_score,
+      previousScore: null,
+      latestAccountId: e.account_id,
+    };
     cur.sum += e.qa_score;
     cur.count += 1;
+    if (cur.count > 1) cur.previousScore = cur.latestScore;
+    cur.latestScore = e.qa_score;
+    cur.latestAccountId = e.account_id;
     agentScoreMap.set(e.agent_employee_id, cur);
   }
 
@@ -975,9 +1012,15 @@ export async function getDashboardChartAnalytics(
     .sort((a, b) => b.avg - a.avg);
 
   const topAgentIds = agentRows.slice(0, 3).map((r) => r.id);
-  const bottomAgentIds = agentRows.slice(-3).map((r) => r.id);
+  // Needs Attention is reserved for genuinely low performance. Do not show
+  // high-scoring agents just because they are at the bottom of a short list.
+  const bottomAgentIds = agentRows
+    .filter((r) => r.avg <= 70)
+    .slice(-3)
+    .map((r) => r.id);
   const allRankedIds = [...new Set([...topAgentIds, ...bottomAgentIds])];
   const employeeName = await getEmployeeNameMap(new Set(allRankedIds));
+  const accountName = new Map(accounts.map((account) => [account.account_id, account.account_code.toUpperCase()]));
 
   const formatAgent = (id: number) => {
     const entry = agentScoreMap.get(id);
@@ -985,13 +1028,42 @@ export async function getDashboardChartAnalytics(
     return {
       name: employeeName.get(id) ?? "",
       score: `${avg}%`,
+      account: accountName.get(entry?.latestAccountId ?? 0) ?? "Unknown account",
+      trend: entry?.previousScore == null
+        ? "Stable"
+        : entry.latestScore > entry.previousScore
+          ? "Improving"
+          : entry.latestScore < entry.previousScore
+            ? "Declining"
+            : "Stable",
     };
   };
 
   const topAgents = topAgentIds.map(formatAgent);
   const bottomAgents = bottomAgentIds.map(formatAgent);
 
-  return { trendData, barData, avgScore, topAgents, bottomAgents };
+  const evaluationEmployeeIds = [...new Set(
+    evaluations
+      .map((evaluation) => evaluation.agent_employee_id)
+      .filter((id): id is number => id != null),
+  )];
+  const evaluationNames = await getEmployeeNameMap(evaluationEmployeeIds);
+  const recentEvaluations = [...evaluations]
+    .sort((a, b) => (b.evaluation_date ?? "").localeCompare(a.evaluation_date ?? ""))
+    .slice(0, 8)
+    .map((evaluation) => ({
+      evaluationId: evaluation.evaluation_id,
+      date: evaluation.evaluation_date?.slice(0, 10) ?? "",
+      agentName: evaluation.agent_employee_id != null
+        ? evaluationNames.get(evaluation.agent_employee_id) ?? "Unknown agent"
+        : "Unknown agent",
+      account: accountName.get(evaluation.account_id) ?? "Unknown account",
+      score: evaluation.qa_score != null ? `${Number(evaluation.qa_score).toFixed(1)}%` : "No score",
+      opportunity: evaluation.opportunities?.trim() || "NONE",
+      notes: evaluation.notes?.trim() || "No opportunity recorded.",
+    }));
+
+  return { trendData, barData, avgScore, topAgents, bottomAgents, recentEvaluations };
 }
 
 // Returns evaluations for a specific agent within an account, for the roster calendar.
@@ -1009,10 +1081,12 @@ export type AgentEvaluation = {
 export async function getAgentAssignment(
   accountCode: string,
   agentName: string
-): Promise<{ coachId: number | null; evaluatorId: number | null; lobId: number | null }> {
+): Promise<{ coachId: number | null; evaluatorId: number | null; evaluatorIds: number[]; lobId: number | null }> {
   const accountId = await getAccountIdByCode(accountCode);
-  if (!accountId) return { coachId: null, evaluatorId: null, lobId: null };
-  const supabase = await createServerClient();
+  if (!accountId) return { coachId: null, evaluatorId: null, evaluatorIds: [], lobId: null };
+  // The page performs the evaluator-ID authorization below; this lookup must
+  // not be filtered out by the logged-in user's read policy.
+  const supabase = createAdminClient();
 
   const { data: agent } = await supabase
     .from("employees")
@@ -1020,20 +1094,108 @@ export async function getAgentAssignment(
     .ilike("employee_name", agentName)
     .maybeSingle();
 
-  if (!agent) return { coachId: null, evaluatorId: null, lobId: null };
+  if (!agent) return { coachId: null, evaluatorId: null, evaluatorIds: [], lobId: null };
 
-  const { data: assignment } = await supabase
+  const { data: assignments } = await supabase
     .from("agent_assignments")
     .select("qa_coach_employee_id, qa_evaluator_employee_id, lob_id")
     .eq("account_id", accountId)
-    .eq("agent_employee_id", agent.id)
-    .maybeSingle();
+    .eq("agent_employee_id", agent.id);
+
+  const assignment = assignments?.[0];
+  const evaluatorIds = [...new Set(
+    (assignments ?? [])
+      .map((row) => row.qa_evaluator_employee_id)
+      .filter((id): id is number => id != null)
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id))
+  )];
 
   return {
     coachId: assignment?.qa_coach_employee_id ?? null,
-    evaluatorId: assignment?.qa_evaluator_employee_id ?? null,
+    evaluatorId: assignment?.qa_evaluator_employee_id != null
+      ? Number(assignment.qa_evaluator_employee_id)
+      : null,
+    evaluatorIds,
     lobId: assignment?.lob_id ?? null,
   };
+}
+
+// Returns evaluation history for agents coached by one employee. The coach
+// assignment is the only scope for this report; the evaluator who performed
+// each evaluation does not affect whether the record is included.
+export async function getCoachEvaluationPerformance(
+  accountCode: string,
+  coachEmployeeId: number,
+  evaluationDate?: string,
+): Promise<{
+  name: string;
+  score: string;
+  opportunities: number;
+  opportunityDetails: { label: string; notes: string; evaluationId: number }[];
+}[]> {
+  const accountId = await getAccountIdByCode(accountCode);
+  if (!accountId) return [];
+
+  const supabase = createAdminClient();
+  const { data: assignments, error: assignmentError } = await supabase
+    .from("agent_assignments")
+    .select("agent_employee_id")
+    .eq("account_id", accountId)
+    .eq("qa_coach_employee_id", coachEmployeeId);
+
+  if (assignmentError || !assignments?.length) return [];
+
+  const agentIds = [...new Set(assignments.map((row) => row.agent_employee_id))];
+  let evaluationsQuery = supabase
+    .from("evaluations")
+    .select("evaluation_id, agent_employee_id, qa_score, opportunities, notes")
+    .eq("account_id", accountId)
+    .in("agent_employee_id", agentIds);
+  if (evaluationDate) evaluationsQuery = evaluationsQuery.eq("evaluation_date", evaluationDate);
+  const { data: evaluations, error: evaluationError } = await evaluationsQuery;
+
+  if (evaluationError || !evaluations?.length) return [];
+
+  const employeeName = await getEmployeeNameMap(agentIds);
+  const grouped = new Map<number, {
+    total: number;
+    count: number;
+    scored: number;
+    opportunityDetails: { label: string; notes: string; evaluationId: number }[];
+  }>();
+  for (const evaluation of evaluations) {
+    if (evaluation.agent_employee_id == null) continue;
+    const current = grouped.get(evaluation.agent_employee_id) ?? {
+      total: 0,
+      count: 0,
+      scored: 0,
+      opportunityDetails: [],
+    };
+    current.count += 1;
+    if (evaluation.qa_score != null) {
+      current.total += Number(evaluation.qa_score);
+      current.scored += 1;
+    }
+    current.opportunityDetails.push({
+      label: evaluation.opportunities?.trim() || "NONE",
+      notes: evaluation.notes?.trim() || "No opportunity recorded.",
+      evaluationId: evaluation.evaluation_id,
+    });
+    grouped.set(evaluation.agent_employee_id, current);
+  }
+
+  return [...grouped.entries()]
+    .map(([id, value]) => ({
+      name: employeeName.get(id) ?? "",
+      score: value.scored > 0
+        ? `${(value.total / value.scored).toFixed(1)}%`
+        : "No evaluation score",
+      opportunities: value.count,
+      opportunityDetails: value.opportunityDetails,
+    }))
+    .filter((person) => person.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function getAgentEvaluations(
@@ -1043,7 +1205,7 @@ export async function getAgentEvaluations(
   const accountId = await getAccountIdByCode(accountCode);
   if (!accountId) return [];
 
-  const supabase = await createServerClient();
+  const supabase = createAdminClient();
 
   // Resolve the agent's employee id by name within this account.
   const { data: agent } = await supabase
@@ -1077,6 +1239,7 @@ export async function getEvaluationById(
   evaluation_id: number;
   qa_score: number | null;
   guideline: string | null;
+  lob_id: number | null;
   notes: string | null;
   ticket_bill: string | null;
   evaluation_date: string | null;
@@ -1086,7 +1249,7 @@ export async function getEvaluationById(
   const { data, error } = await supabase
     .from("evaluations")
     .select(
-      "evaluation_id, qa_score, guideline, notes, ticket_bill, evaluation_date, checkbox_results"
+      "evaluation_id, qa_score, guideline, lob_id, notes, ticket_bill, evaluation_date, checkbox_results"
     )
     .eq("evaluation_id", evaluationId)
     .maybeSingle();
@@ -1095,6 +1258,7 @@ export async function getEvaluationById(
     evaluation_id: number;
     qa_score: number | null;
     guideline: string | null;
+    lob_id: number | null;
     notes: string | null;
     ticket_bill: string | null;
     evaluation_date: string | null;

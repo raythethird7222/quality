@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleChevronRight,
@@ -32,6 +33,7 @@ type AccountFrameworkViewProps = {
   totalEvaluations?: number;
   dailyTeamQaScore?: string;
   failedEvaluations?: number;
+  coachHistory: AgentPerformance[];
   agentRows: {
     name: string;
     lob: string;
@@ -41,6 +43,11 @@ type AccountFrameworkViewProps = {
     status: string;
   }[];
 };
+
+// Keeps database/display-name variants matchable across analytics and roster data.
+function normalizePersonName(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toUpperCase();
+}
 
 // Month names for calendar.
 const MONTH_NAMES = [
@@ -80,6 +87,7 @@ export default function AccountFrameworkView({
   qaName,
   people: initialPeople,
   agentRows,
+  coachHistory: initialCoachHistory,
 }: AccountFrameworkViewProps) {
   // Controls visibility of the timeline date picker popover.
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -96,10 +104,15 @@ export default function AccountFrameworkView({
   // Live data state — updated when date changes. Always scoped to the selected
   // date (populated on mount and whenever the day changes). The full roster is
   // retained when a selected day has no evaluations yet.
-  const [livePeople, setLivePeople] = useState<AgentPerformance[]>(initialPeople);
   const [liveTotal, setLiveTotal] = useState<number | undefined>(undefined);
   const [liveScore, setLiveScore] = useState<string | undefined>(undefined);
   const [liveFailed, setLiveFailed] = useState<number | undefined>(undefined);
+  const [coachHistory, setCoachHistory] = useState<AgentPerformance[]>(initialCoachHistory);
+  const [evaluatedAgentNames, setEvaluatedAgentNames] = useState<Set<string>>(
+    () => new Set(
+      initialCoachHistory.map((person) => normalizePersonName(person.name)),
+    ),
+  );
 
   // True from the start: the metrics/table are always scoped to the currently
   // selected day (the calendar defaults to today). The table therefore shows
@@ -112,8 +125,8 @@ export default function AccountFrameworkView({
 // Month-evaluation modal: visibility and the list of evaluations for the
 // selected month. Populated when the user clicks "Evaluate" in the calendar.
   const [evalModalOpen, setEvalModalOpen] = useState(false);
-  const [evalMonthData, setEvalMonthData] = useState<AccountEvaluationRow[]>([]);
-  const [evalMonthLoading, setEvalMonthLoading] = useState(false);
+  const [evalMonthData] = useState<AccountEvaluationRow[]>([]);
+  const [evalMonthLoading] = useState(false);
 
 // Performance table pagination state.
   const [perfPage, setPerfPage] = useState(1);
@@ -148,6 +161,17 @@ export default function AccountFrameworkView({
       setLoading(true);
       try {
         const iso = toISODate(date);
+        fetch(`/api/accounts/${unit}/coach-evaluations?date=${iso}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (seq === fetchSeq.current && Array.isArray(data.coachHistory)) {
+              setCoachHistory(data.coachHistory);
+              setEvaluatedAgentNames(
+                new Set(data.coachHistory.map((person: AgentPerformance) => normalizePersonName(person.name))),
+              );
+            }
+          })
+          .catch(console.error);
         const params = new URLSearchParams({
           account: unit,
           dateFrom: iso,
@@ -160,12 +184,10 @@ export default function AccountFrameworkView({
         if (seq !== fetchSeq.current) return;
         // Reflect the fetched day, including an empty result so a day with no
         // evaluations correctly shows "No data".
-        const performanceByName = new Map<string, AgentPerformance>(
-          (data.agentPerformance ?? []).map((person: AgentPerformance) => [person.name, person])
-        );
-        setLivePeople(
-          initialPeople.map((person) => performanceByName.get(person.name) ?? person)
-        );
+        setEvaluatedAgentNames((previous) => new Set([
+          ...previous,
+          ...(data.agentPerformance ?? []).map((person: AgentPerformance) => normalizePersonName(person.name)),
+        ]));
         if (data.totalEvaluations != null) setLiveTotal(data.totalEvaluations);
         if (data.avgScore != null) setLiveScore(`${data.avgScore.toFixed(1)}%`);
         else setLiveScore("--");
@@ -179,29 +201,8 @@ export default function AccountFrameworkView({
         }
       }
     },
-    [initialPeople, unit]
+    [unit]
   );
-
-  // Fetch evaluations for the selected month and open the modal.
-  const openEvaluateModal = useCallback(async () => {
-    const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-    const monthEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
-    const from = toISODate(monthStart);
-    const to = toISODate(monthEnd);
-    setEvalMonthLoading(true);
-    setEvalModalOpen(true);
-    try {
-      const params = new URLSearchParams({ account: unit, dateFrom: from, dateTo: to });
-      const res = await fetch(`/api/evaluations?${params.toString()}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setEvalMonthData(data.evaluations ?? []);
-    } catch (e) {
-      console.error("Failed to fetch month evaluations:", e);
-    } finally {
-      setEvalMonthLoading(false);
-    }
-  }, [selectedDate, unit]);
 
   // Navigate to previous/next day.
   const navigateDay = useCallback(
@@ -317,19 +318,16 @@ export default function AccountFrameworkView({
         />
 
         {/* Main Card */}
-        <section className="mt-5 rounded-2xl border border-border-default bg-card p-6 shadow-sm md:p-7">
+        <section className="mt-5 overflow-hidden rounded-[26px] border border-border-default bg-card shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           {/* Header Row */}
-          <header className="flex flex-col justify-between gap-4 border-b border-border-subtle pb-5 md:flex-row md:items-center">
+          <header className="relative flex flex-col justify-between gap-5 overflow-hidden bg-[linear-gradient(120deg,rgba(47,103,152,0.12),transparent_45%,rgba(200,165,75,0.10))] px-6 py-6 md:flex-row md:items-end md:px-8 md:py-7">
             <div>
-              <h1 className="text-[22px] font-bold tracking-tight text-text-primary">
-                Account Framework View
-                <span className="mx-1.5 text-text-muted">·</span>
-                <span className={a.text}>{account}</span>
-                <span className="mx-1.5 text-text-muted">·</span>
-                {qaName}
+              <div className="mb-2 flex flex-wrap items-center gap-2"><span className={`rounded-full ${a.bgLight} px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${a.text}`}>Account workspace</span><span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-text-muted"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Live data</span></div>
+              <h1 className="text-[26px] font-bold tracking-tight text-text-primary sm:text-[32px]">
+                {account} performance overview
               </h1>
               <p className="mt-1 text-[13px] text-text-secondary">
-                Operational performance tracking and evaluation management
+                Daily QA coverage and agent performance for this account
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -352,10 +350,12 @@ export default function AccountFrameworkView({
 
           {/* Timeline Navigator */}
           <section
-            className="mt-5 overflow-hidden rounded-xl border border-border-subtle"
+            className="relative z-30 mt-5 overflow-visible rounded-xl bg-surface-raised/70"
             aria-label="Date navigation"
           >
-            <div className="flex flex-wrap items-center justify-center gap-3 bg-surface-raised px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-raised px-4 py-3.5 md:px-5">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-text-muted"><CalendarDays className={`h-4 w-4 ${a.text}`} /> Daily view</div>
+              <div className="flex flex-wrap items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={() => navigateDay(-1)}
@@ -456,11 +456,13 @@ export default function AccountFrameworkView({
                 Next Day
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
+              <button type="button" onClick={() => { const today = new Date(); setSelectedDate(today); setCalMonth(today.getMonth()); setCalYear(today.getFullYear()); setCalendarOpen(false); setDayFilterActive(true); fetchForDate(today); }} className="rounded-lg px-2.5 py-2 text-[12px] font-semibold text-text-secondary transition hover:bg-card hover:text-text-primary">Today</button>
+              </div>
             </div>
 
             {/* Loading indicator — fixed height so it never shifts the layout */}
             <div
-              className="flex h-9 items-center justify-center gap-2 border-t border-border-subtle bg-surface-raised px-4 text-[12px] font-medium text-text-secondary"
+              className="flex h-9 items-center justify-center gap-2 bg-surface-raised px-4 text-[12px] font-medium text-text-secondary"
               aria-live="polite"
             >
               {loading ? (
@@ -504,7 +506,7 @@ export default function AccountFrameworkView({
                       <div className="overflow-y-auto h-[400px]">
                         <table className="w-full border-collapse text-left">
                           <thead>
-                            <tr className="border-b-2 border-border-default">
+                            <tr>
                               <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-text-muted">
                                 Date
                               </th>
@@ -527,7 +529,7 @@ export default function AccountFrameworkView({
                           </thead>
                           <tbody>
                             {evalMonthData.map((evaluation) => (
-                              <tr key={evaluation.evaluationId} className="border-b border-border-default hover:bg-surface-raised">
+                              <tr key={evaluation.evaluationId} className="transition hover:bg-surface-raised">
                                 <td className="px-3 py-2 text-sm text-text-secondary">
                                   {evaluation.evaluationDate ? new Date(evaluation.evaluationDate).toLocaleDateString() : '--'}
                                 </td>
@@ -544,7 +546,7 @@ export default function AccountFrameworkView({
                                   {evaluation.qaScore !== null ? (
                                     <span className={`inline-block rounded-md px-2.5 py-1 text-sm font-bold ${
                                       evaluation.qaScore! >= 90
-                                        ? `${getAccentColors(useAccent()).bgLight} ${getAccentColors(useAccent()).text}`
+                                        ? `${a.bgLight} ${a.text}`
                                         : 'bg-surface-raised text-text-muted'
                                     }`}>
                                       {evaluation.qaScore}%
@@ -580,7 +582,7 @@ export default function AccountFrameworkView({
             {/* Metrics Banner */}
 
             {/* Metrics Banner */}
-            <div className="grid grid-cols-1 divide-y divide-border-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <div className="grid grid-cols-1 gap-3 bg-surface-raised/40 p-4 sm:grid-cols-3">
               <MetricCard
                 icon={ClipboardList}
                 label="Total Evaluations"
@@ -603,15 +605,15 @@ export default function AccountFrameworkView({
           </section>
 
           {/* Performance Table */}
-          <section className="mt-5 rounded-xl border border-border-subtle bg-surface-raised/50 p-5">
-            <h2 className="flex items-center gap-2 text-[15px] font-bold text-text-primary">
+          <section className="mt-5 overflow-hidden rounded-2xl border border-border-subtle bg-card shadow-sm">
+            <div className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="flex items-center gap-2 text-[15px] font-bold text-text-primary">
               <ClipboardList className={`h-4.5 w-4.5 ${a.text}`} />
               Individual Agent Performance Breakdown
-            </h2>
-            <div className="mt-3 overflow-x-auto">
+            </h2><p className="mt-1 text-[12px] text-text-muted">Evaluation history for agents coached by the current QA Coach</p></div><span className="inline-flex items-center gap-1.5 self-start rounded-full bg-surface-raised px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted sm:self-auto"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Synced</span></div>
+            <div className="overflow-x-auto px-5 pb-2">
               <table className="w-full min-w-[500px] border-collapse text-left">
                 <thead>
-                  <tr className={`border-b-2 ${a.border}`}>
+                  <tr className="border-b border-border-subtle text-left">
                     <th className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-text-muted">
                       Agent Name
                     </th>
@@ -624,7 +626,16 @@ export default function AccountFrameworkView({
                   </tr>
                 </thead>
                 <tbody>
-                  {livePeople.length === 0 ? (
+                  {loading ? (
+                    <tr>
+                      <td
+                        colSpan={3}
+                        className="px-3 py-8 text-center text-[13px] text-text-secondary"
+                      >
+                        Loading evaluations for this date...
+                      </td>
+                    </tr>
+                  ) : coachHistory.length === 0 ? (
                     <tr>
                       <td
                         colSpan={3}
@@ -634,11 +645,11 @@ export default function AccountFrameworkView({
                       </td>
                     </tr>
                     ) : (
-                      paginate(livePeople, perfPage, perfPageSize).map((person) => {
+                      paginate(coachHistory, perfPage, perfPageSize).map((person) => {
                       return (
                       <tr
                         key={person.name}
-                        className="border-b border-border-subtle transition hover:bg-surface-overlay/50"
+                        className="transition hover:bg-surface-raised/70"
                       >
                         <td className="px-3 py-3 text-[13px] font-medium text-text-primary">
                           {person.name}
@@ -646,10 +657,32 @@ export default function AccountFrameworkView({
                         <td
                           className={`px-3 py-3 text-[13px] font-bold ${a.text}`}
                         >
-                          {person.score}
+                          {person.score === "--" || person.score === "—" ? (
+                            <span className="text-[12px] font-medium text-text-muted">No evaluation</span>
+                          ) : (
+                            person.score
+                          )}
                         </td>
                         <td className="px-3 py-3 text-[13px] text-text-secondary">
-                          {person.opportunities}
+                          {person.opportunityDetails?.length ? (
+                            <div className="space-y-3">
+                              {person.opportunityDetails.map((opportunity, index) => (
+                                <div
+                                  key={opportunity.evaluationId ?? `${person.name}-${index}`}
+                                  className="border-b border-border-subtle pb-3 last:border-b-0 last:pb-0"
+                                >
+                                  <div className="text-[13px] font-bold uppercase tracking-wide text-pink-500">
+                                    {opportunity.label}
+                                  </div>
+                                  <p className="mt-1 whitespace-pre-line text-[12px] italic leading-5 text-text-secondary">
+                                    {opportunity.notes}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            person.opportunities
+                          )}
                         </td>
                       </tr>
                     );
@@ -658,11 +691,11 @@ export default function AccountFrameworkView({
                 </tbody>
               </table>
             </div>
-            {livePeople.length > 0 && (
+            {coachHistory.length > 0 && (
               <Pagination
                 currentPage={perfPage}
                 pageSize={perfPageSize}
-                totalItems={livePeople.length}
+                totalItems={coachHistory.length}
                 onPageChange={setPerfPage}
                 onPageSizeChange={(size) => {
                   setPerfPageSize(size);
@@ -681,6 +714,7 @@ export default function AccountFrameworkView({
               qaName={qaName}
               people={coachPeople}
               agentRows={agentRows}
+              evaluatedAgentNames={evaluatedAgentNames}
               showQa
               showEval={false}
               scope="coach"
@@ -692,6 +726,7 @@ export default function AccountFrameworkView({
               qaName={qaName}
               people={evaluatorPeople}
               agentRows={agentRows}
+              evaluatedAgentNames={evaluatedAgentNames}
               scope="evaluator"
             />
           </div>
@@ -714,7 +749,7 @@ function MetricCard({
   accentVar: string;
 }) {
   return (
-    <div className="flex items-center gap-4 px-5 py-4">
+    <div className="flex items-center gap-4 rounded-2xl border border-border-subtle bg-card px-5 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <span
         className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
         style={{ backgroundColor: `var(${accentVar}-soft)`, color: `var(${accentVar})` }}
@@ -744,6 +779,7 @@ function RosterPanel({
   qaName,
   people,
   agentRows,
+  evaluatedAgentNames,
   showQa = false,
   showEval = true,
   scope = "evaluator",
@@ -754,6 +790,7 @@ function RosterPanel({
   qaName: string;
   people: AgentPerformance[];
   agentRows: AccountFrameworkViewProps["agentRows"];
+  evaluatedAgentNames: Set<string>;
   showQa?: boolean;
   showEval?: boolean;
   scope?: "coach" | "evaluator";
@@ -768,7 +805,7 @@ function RosterPanel({
   const [rosterPageSize, setRosterPageSize] = useState(10);
 
   return (
-    <section className="rounded-xl border border-border-subtle bg-card p-4">
+    <section className="rounded-2xl bg-surface-raised/60 p-4">
       <h2 className="flex items-center gap-2 text-[14px] font-bold text-text-primary">
         <UsersRound className={`h-4 w-4 ${a.text}`} />
         {title}
@@ -785,11 +822,16 @@ function RosterPanel({
            paginate(people, rosterPage, rosterPageSize).map((person) => {
              const slug = person.name.toLowerCase().replace(/\s+/g, "-");
              const row = evalByName.get(person.name);
+             const evaluated = evaluatedAgentNames.has(normalizePersonName(person.name));
             return (
               <Link
                 key={person.name}
                 href={`/accounts/${account}/roster/${slug}?scope=${scope}`}
-                className={`flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-raised px-3 py-2.5 text-[12px] transition hover:border-current ${a.text}`}
+                className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-[12px] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${a.text} ${
+                  evaluated
+                    ? "border-2 !border-emerald-400 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(52,211,153,0.2)]"
+                    : "border-transparent bg-card"
+                }`}
               >
                 <span className="font-medium text-text-primary">
                   {person.name}
@@ -804,6 +846,11 @@ function RosterPanel({
                 {showEval && row?.evaluator && (
                   <span className="rounded-md bg-surface-overlay px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
                     Eval: {row.evaluator}
+                  </span>
+                )}
+                {evaluated && (
+                  <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
+                    Evaluated
                   </span>
                 )}
                 <CircleChevronRight className="ml-auto h-4 w-4 shrink-0 text-text-muted" />

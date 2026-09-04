@@ -52,10 +52,11 @@ export default function LoginPage() {
     const errorMessage = new URLSearchParams(window.location.search).get("error");
     if (!errorMessage) return;
 
-    setError(errorMessage);
+    const errorTimer = window.setTimeout(() => setError(errorMessage), 0);
     const cleanUrl = new URL(window.location.href);
     cleanUrl.searchParams.delete("error");
     window.history.replaceState({}, "", cleanUrl.toString());
+    return () => window.clearTimeout(errorTimer);
   }, []);
 
   useEffect(() => {

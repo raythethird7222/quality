@@ -69,7 +69,7 @@ export async function POST(
 
     await notifyAllEmployees(
       "QA assignment saved",
-      `${saved.length} QA assignment${saved.length === 1 ? "" : "s"} saved for ${normalized}.`,
+      `${saved.length} QA assignment${saved.length === 1 ? "" : "s"} saved for ${normalized}: ${saved.map((row) => row.name || "Unnamed agent").join(", ")}.`,
     );
 
     auditLog("assignments.saved", {

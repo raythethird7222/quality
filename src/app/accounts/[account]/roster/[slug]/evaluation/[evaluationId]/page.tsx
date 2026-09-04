@@ -23,7 +23,7 @@ export default async function EvaluationPage({
   searchParams,
 }: EvaluationPageProps) {
   // Resolve the route parameters (account, person slug, evaluation id) and the
-  // guideline filter (which drives the checklist fetched from evaluation_parameters).
+  // guideline filter (which drives the checklist fetched from evaluation_param_rm).
   const { account, slug, evaluationId } = await params;
   const sp = await searchParams;
   const guideline =
@@ -40,12 +40,11 @@ export default async function EvaluationPage({
   const config = getAccount(account);
 
   // Fetch the active checklist for this account + guideline, scoped to LOB.
-  const lobId =
+  const requestedLobId =
     typeof sp.lobId === "string" && sp.lobId ? Number(sp.lobId) : undefined;
-  const [parameters, evaluation] = await Promise.all([
-    getEvaluationParameters(account, guideline, lobId),
-    getEvaluationById(Number(evaluationId)),
-  ]);
+  const evaluation = await getEvaluationById(Number(evaluationId));
+  const lobId = evaluation?.lob_id ?? requestedLobId;
+  const parameters = await getEvaluationParameters(account, guideline, lobId);
   const { groups, totalScore } = buildEvaluationChecklist(parameters);
 
   // Build a lookup of checked parameter IDs from the stored evaluation.

@@ -1,7 +1,7 @@
 "use client";
 
 // Interactive evaluation form: lets an assigned evaluator tick the checklist
-// clauses fetched from evaluation_parameters and save a new evaluation.
+// clauses fetched from evaluation_param_rm and save a new evaluation.
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeft, CheckSquare, Phone, RotateCcw } from "lucide-react";

@@ -1,7 +1,7 @@
 // Shared database helpers: role-scoping, agent resolution, and name lookups.
 // Extracted from quality.ts and employees.ts to eliminate duplicated queries.
 
-import { createServerClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import type { AuthUser, UserRole } from "@/types";
 
 // Roles that see the full analytics picture for an account.
@@ -38,7 +38,9 @@ export async function getScopedAgentIds(
     return { agentIds: null };
   }
 
-  const supabase = await createServerClient();
+  // Authorization remains explicit through user.employee_id below; use the
+  // trusted server client so RLS cannot hide valid assignment scope rows.
+  const supabase = createAdminClient();
   const { data: scopedAssignments } = await supabase
     .from("agent_assignments")
     .select("agent_employee_id")
@@ -71,7 +73,10 @@ export async function getEmployeeNameMap(
   const idArray = [...new Set(ids)].filter((id): id is number => id != null);
   if (idArray.length === 0) return new Map();
 
-  const supabase = await createServerClient();
+  // Name resolution is performed after the caller has already constrained the
+  // employee IDs. Use the trusted server client so RLS does not erase valid
+  // display names from account-scoped reports.
+  const supabase = createAdminClient();
   const { data: employees } = await supabase
     .from("employees")
     .select("id, employee_name")

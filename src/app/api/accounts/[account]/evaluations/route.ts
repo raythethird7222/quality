@@ -25,8 +25,7 @@ const createEvaluationBodySchema = z.object({
         parameterId: z.number().int().positive(),
         checked: z.boolean(),
       })
-    )
-    .min(1, "Checklist is required"),
+    ),
 });
 
 const EVALUATION_CREATOR_ROLES = ["admin", "account_manager", "quality_coordinator", "qa_supervisor", "qa"];

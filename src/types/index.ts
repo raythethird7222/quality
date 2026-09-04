@@ -80,6 +80,11 @@ export type AgentPerformance = {
   name: string;
   score: string;
   opportunities: number;
+  opportunityDetails?: {
+    label: string;
+    notes: string;
+    evaluationId?: number;
+  }[];
 };
 
 export type EvaluationDay = {
