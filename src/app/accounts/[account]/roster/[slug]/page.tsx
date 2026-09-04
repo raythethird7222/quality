@@ -38,7 +38,9 @@ export default async function RosterPage({
   // Agents opened from the Managed Coach Roster Scope are always read-only.
   // Otherwise, only the assigned Evaluator can evaluate.
   const canEvaluate =
-    scope !== "coach" && user.employee_id === assignment.evaluatorId;
+    scope !== "coach" &&
+    (Number(user.employee_id) === Number(assignment.evaluatorId) ||
+      assignment.evaluatorIds.some((id) => Number(id) === Number(user.employee_id)));
 
   // Render the roster calendar view for the requested person.
   return (

@@ -13,8 +13,8 @@ import {
   Settings,
   UserPlus,
   Check,
-  AlertCircle,
 } from "lucide-react";
+import { useToast } from "@/components/ui/ToastProvider";
 
 import AddAgentModal, {
   type NewAgentPayload,
@@ -62,6 +62,7 @@ export default function AssignmentSettingsView({
   account,
 }: AssignmentSettingsViewProps) {
   const selectedAccent = useAccent();
+  const { showToast } = useToast();
   const a = getAccentColors(selectedAccent);
 
   const [search, setSearch] = useState("");
@@ -78,7 +79,6 @@ export default function AssignmentSettingsView({
   const [addAgentOpen, setAddAgentOpen] = useState(false);
 
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
     const client = createBrowserClient();
@@ -213,7 +213,6 @@ export default function AssignmentSettingsView({
     );
 
     setSaveState("idle");
-    setErrorMsg("");
   }
 
   // ------------------------------------------------------------
@@ -238,7 +237,6 @@ export default function AssignmentSettingsView({
     );
 
     setSaveState("idle");
-    setErrorMsg("");
   }
 
   // ------------------------------------------------------------
@@ -263,13 +261,12 @@ export default function AssignmentSettingsView({
     if (!parsed.success) {
       const first =
         parsed.error.issues[0]?.message ?? "Validation failed";
-      setErrorMsg(first);
       setSaveState("error");
+      showToast("error", first);
       return { ok: false, error: first };
     }
 
     setSaveState("saving");
-    setErrorMsg("");
 
     try {
       const res = await fetch(
@@ -285,8 +282,8 @@ export default function AssignmentSettingsView({
 
       if (!res.ok || !data.success) {
         const msg = data.error ?? "Failed to save new agent";
-        setErrorMsg(msg);
         setSaveState("error");
+        showToast("error", msg);
         return { ok: false, error: msg };
       }
 
@@ -309,11 +306,12 @@ export default function AssignmentSettingsView({
       ]);
 
       setSaveState("saved");
+      showToast("success", "QA assignment saved and notification sent.");
       return { ok: true };
     } catch {
       const msg = "Network error while saving new agent";
-      setErrorMsg(msg);
       setSaveState("error");
+      showToast("error", msg);
       return { ok: false, error: msg };
     }
   }
@@ -323,7 +321,6 @@ export default function AssignmentSettingsView({
   // ------------------------------------------------------------
 
   async function handleSave() {
-    setErrorMsg("");
 
     const payload = agents.map((agent) => ({
       assignmentId: agent.assignmentId,
@@ -341,12 +338,8 @@ export default function AssignmentSettingsView({
     });
 
     if (!parsed.success) {
-      const first =
-        parsed.error.issues[0]?.message ??
-        "Validation failed";
-
-      setErrorMsg(first);
       setSaveState("error");
+      showToast("error", parsed.error.issues[0]?.message ?? "Validation failed");
 
       return;
     }
@@ -370,12 +363,9 @@ export default function AssignmentSettingsView({
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setErrorMsg(
-          data.error ??
-            "Failed to save assignments"
-        );
 
         setSaveState("error");
+        showToast("error", data.error ?? "Failed to save assignments");
 
         return;
       }
@@ -409,12 +399,11 @@ export default function AssignmentSettingsView({
 
       setSelected(new Set());
       setSaveState("saved");
+      showToast("success", "QA assignments saved and notification sent.");
     } catch {
-      setErrorMsg(
-        "Network error while saving assignments"
-      );
 
       setSaveState("error");
+      showToast("error", "Network error while saving assignments");
     }
   }
 
@@ -695,20 +684,6 @@ export default function AssignmentSettingsView({
           {/* -------------------------------------------------- */}
           {/* SAVE MESSAGES */}
           {/* -------------------------------------------------- */}
-
-          {saveState === "error" && (
-            <div className="flex items-center gap-2 border-b border-border-subtle bg-brand-crimson/10 px-6 py-3 text-[13px] font-medium text-brand-crimson">
-              <AlertCircle size={15} />
-              {errorMsg}
-            </div>
-          )}
-
-          {saveState === "saved" && (
-            <div className="flex items-center gap-2 border-b border-border-subtle bg-brand-indigo/10 px-6 py-3 text-[13px] font-medium text-brand-indigo">
-              <Check size={15} />
-              Assignments saved successfully.
-            </div>
-          )}
 
           {/* -------------------------------------------------- */}
           {/* TABLE */}

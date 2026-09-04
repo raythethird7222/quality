@@ -4,10 +4,18 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { assertTrustedOrigin } from "@/server/security/origin";
 import { jsonError, jsonOk } from "@/server/security/http";
 import { ValidationError } from "@/server/security/errors";
+import { normalizeRole } from "@/server/auth/roles";
+
+const NOTIFICATION_ROLES = new Set(["qa", "qa_supervisor", "team_lead"]);
+
+function canUseNotifications(role: string): boolean {
+  return NOTIFICATION_ROLES.has(normalizeRole(role) ?? "");
+}
 
 export async function GET() {
   try {
     const user = await requireUser();
+    if (!canUseNotifications(user.role)) return jsonOk({ notifications: [] });
     const { data, error } = await createAdminClient()
       .from("notifications")
       .select("notification_id, title, description, read_at, created_at")
@@ -25,6 +33,7 @@ export async function PATCH(request: NextRequest) {
   try {
     await assertTrustedOrigin();
     const user = await requireUser();
+    if (!canUseNotifications(user.role)) return jsonOk({ success: true });
     const body = await request.json().catch(() => ({}));
     const id = body.notification_id == null ? null : Number(body.notification_id);
     const admin = createAdminClient();
@@ -41,6 +50,7 @@ export async function DELETE(request: NextRequest) {
   try {
     await assertTrustedOrigin();
     const user = await requireUser();
+    if (!canUseNotifications(user.role)) return jsonOk({ success: true });
     const idParam = new URL(request.url).searchParams.get("id");
     const admin = createAdminClient();
     let query = admin.from("notifications").delete().eq("recipient_employee_id", user.employee_id);

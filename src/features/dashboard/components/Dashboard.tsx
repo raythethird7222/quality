@@ -24,6 +24,7 @@ import {
   Building2,
   ChevronRight,
   ChartPie,
+  ClipboardList,
 } from "lucide-react";
 import {
   Card,
@@ -55,7 +56,7 @@ export default function Dashboard({
   // Live overview state — updated via Supabase Realtime.
   const [liveOverview, setLiveOverview] =
     useState<DashboardOverview>(overview);
-  const [timeframe, setTimeframe] = useState<DashboardTimeframe>("Daily");
+  const [timeframe, setTimeframe] = useState<DashboardTimeframe>("Monthly");
   const [pendingTimeframe, setPendingTimeframe] =
     useState<DashboardTimeframe | null>(null);
   const [filterError, setFilterError] = useState<string | null>(null);
@@ -154,7 +155,7 @@ export default function Dashboard({
   // Reconcile server-rendered data with the browser's local calendar date.
   useEffect(() => {
     const refreshTimer = window.setTimeout(() => {
-      void fetchOverview("Daily", false);
+        void fetchOverview("Monthly", false);
     }, 0);
     return () => window.clearTimeout(refreshTimer);
   }, [fetchOverview]);
@@ -561,9 +562,9 @@ export default function Dashboard({
                         </span>
                         <span className="truncate font-medium text-text-primary group-hover:text-[var(--app-accent)] transition-colors">{agent.name}</span>
                       </span>
-                      <span className="text-text-muted">—</span>
+                      <span className="text-text-muted">{agent.account}</span>
                       <span className={`font-bold ${a.text}`}>{agent.score}</span>
-                      <span className="text-emerald-700">—</span>
+                      <span className="font-medium text-emerald-700">{agent.trend}</span>
                     </div>
                   ))}
                   </div>
@@ -599,7 +600,7 @@ export default function Dashboard({
                       <span>Agent</span>
                       <span>Account</span>
                       <span>QA Score</span>
-                      <span>vs Prev. 30 Days</span>
+                      <span>Trend</span>
                       <span>Action</span>
                     </div>
                   {liveOverview.charts.bottomAgents.map((agent, idx) => (
@@ -610,9 +611,9 @@ export default function Dashboard({
                         </span>
                         <span className="truncate font-medium text-text-primary group-hover:text-brand-crimson transition-colors">{agent.name}</span>
                       </span>
-                      <span className="text-text-muted">—</span>
+                      <span className="text-text-muted">{agent.account}</span>
                       <span className="font-bold text-brand-crimson">{agent.score}</span>
-                      <span className="text-text-muted">—</span>
+                      <span className="text-text-muted">{agent.trend}</span>
                       <button type="button" aria-label={`View ${agent.name}`} className="rounded border border-border-default px-1.5 py-1 text-[11px] font-medium text-text-secondary">View</button>
                     </div>
                   ))}
@@ -622,6 +623,44 @@ export default function Dashboard({
             </CardContent>
           </Card>
           </div>
+
+          <Card className="mt-3 min-w-0 rounded-xl border border-border-default bg-card py-3 shadow-none">
+            <CardHeader className="flex flex-row items-center gap-2 px-3 pb-2">
+              <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${a.bgLight}`}>
+                <ClipboardList size={16} className={a.text} />
+              </span>
+              <div>
+                <CardTitle className="text-xs font-semibold text-text-primary">
+                  Recent Evaluation Activity
+                </CardTitle>
+                <p className="text-[11px] text-text-muted">Scores, opportunities, and notes for the selected period</p>
+              </div>
+            </CardHeader>
+            <CardContent className="px-3">
+              {liveOverview.charts.recentEvaluations.length === 0 ? (
+                <div className="flex min-h-20 items-center justify-center rounded-xl border border-dashed border-border-subtle bg-surface-raised/50">
+                  <p className="text-sm font-semibold text-text-primary">No evaluation activity</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border-subtle">
+                  {liveOverview.charts.recentEvaluations.map((evaluation) => (
+                    <div key={evaluation.evaluationId} className="grid gap-2 px-1 py-3 text-xs sm:grid-cols-[120px_minmax(150px,1fr)_80px_minmax(180px,1.4fr)] sm:items-start">
+                      <div className="text-text-muted">{evaluation.date}</div>
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-text-primary">{evaluation.agentName}</p>
+                        <p className="text-[11px] text-text-muted">{evaluation.account}</p>
+                      </div>
+                      <div className={`font-bold ${a.text}`}>{evaluation.score}</div>
+                      <div className="min-w-0">
+                        <p className="font-bold uppercase tracking-wide text-pink-500">{evaluation.opportunity}</p>
+                        <p className="mt-1 whitespace-pre-line text-[11px] italic leading-4 text-text-secondary">{evaluation.notes}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </section>
       </div>
     </main>

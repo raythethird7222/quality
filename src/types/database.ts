@@ -264,7 +264,7 @@ export interface Database {
         };
         Relationships: [];
       };
-      evaluation_parameters: {
+      evaluation_param_rm: {
         Row: {
           id: number;
           lob_name: string | null;
@@ -463,7 +463,7 @@ export type TablesUpdate<T extends keyof Database["public"]["Tables"]> =
 
 // Convenience aliases for the quality tables.
 export type Evaluation = Tables<"evaluations">;
-export type EvaluationParameter = Tables<"evaluation_parameters">;
+export type EvaluationParameter = Tables<"evaluation_param_rm">;
 export type RmCover = Tables<"rm_covers">;
 export type RmMqpmPerformance = Tables<"rm_mqpm_performance">;
 export type Status = Tables<"statuses">;

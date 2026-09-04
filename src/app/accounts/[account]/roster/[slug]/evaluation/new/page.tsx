@@ -1,6 +1,6 @@
 // Server page rendering the interactive evaluation form for a person in an
 // account. Matches /evaluation/new (before the dynamic [evaluationId] route)
-// and streams the evaluation_parameters checklist for the chosen guideline,
+// and streams the evaluation_param_rm checklist for the chosen guideline,
 // scoped to the agent's Account + LOB.
 import { notFound } from "next/navigation";
 import { getAccount, isValidAccount } from "@/features/accounts/config";
@@ -10,6 +10,7 @@ import {
   buildEvaluationChecklist,
   getEvaluationParameters,
   getAgentViciLink,
+  getAgentAssignment,
 } from "@/lib/db/quality";
 import EvaluationFormView from "@/features/roster/components/EvaluationFormView";
 
@@ -41,14 +42,19 @@ export default async function NewEvaluationPage({
   const day = typeof sp.day === "string" ? sp.day : undefined;
   const month = typeof sp.month === "string" ? sp.month : undefined;
   const year = typeof sp.year === "string" ? sp.year : undefined;
-  const lobId =
+  const requestedLobId =
     typeof sp.lobId === "string" && sp.lobId ? Number(sp.lobId) : undefined;
 
-  // Fetch the active checklist for account + guideline, scoped to the agent's LOB.
-  const [parameters, viciLink] = await Promise.all([
-    getEvaluationParameters(account, guideline, lobId),
+  // Resolve the LOB from the account assignment. The query-string value is
+  // only a fallback for older links and is never preferred over the database.
+  const [assignment, viciLink] = await Promise.all([
+    getAgentAssignment(account, slugToDisplayName(slug)),
     getAgentViciLink(slugToDisplayName(slug)),
   ]);
+  const lobId = assignment.lobId ?? requestedLobId;
+
+  // Fetch active parameters for this account, guideline, and assigned LOB.
+  const parameters = await getEvaluationParameters(account, guideline, lobId);
   const { groups, totalScore } = buildEvaluationChecklist(parameters);
 
   return (

@@ -6,7 +6,10 @@ import {
   getAccountAssignmentRows,
   getAccountQaName,
 } from "@/lib/db/employees";
-import { getAccountEvaluationAnalytics } from "@/lib/db/quality";
+import {
+  getAccountEvaluationAnalytics,
+  getCoachEvaluationPerformance,
+} from "@/lib/db/quality";
 import { createServerClient } from "@/lib/supabase/server";
 import AccountFrameworkView from "@/features/dashboard/components/AccountFrameworkView";
 
@@ -66,11 +69,17 @@ export default async function AccountDashboardPage({
     analytics,
     agentRows,
     qaName,
+    coachHistory,
   ] = await Promise.all([
     getAccountAgents(account, targetUser),
     getAccountEvaluationAnalytics(account, targetUser),
     getAccountAssignmentRows(account, targetUser),
     getAccountQaName(account, targetUser.employee_name),
+    getCoachEvaluationPerformance(
+      account,
+      targetUser.employee_id,
+      new Date().toISOString().slice(0, 10),
+    ),
   ]);
 
   // If critical data is missing (shouldn't happen in normal flow), show a minimal loading state.
@@ -109,6 +118,7 @@ export default async function AccountDashboardPage({
       }
       failedEvaluations={analytics.failedEvaluations}
       agentRows={agentRows}
+      coachHistory={coachHistory}
     />
   );
 }
